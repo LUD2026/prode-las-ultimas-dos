@@ -404,7 +404,22 @@ export default function Home() {
       ) : (
         <>
           <p>👤 {nombreUsuario || email}</p>
-          <button onClick={() => supabase.auth.signOut()}>Cerrar sesión</button>
+          <button
+  onClick={() => supabase.auth.signOut()}
+  style={{
+    marginTop: 10,
+    marginBottom: 20,
+    background: '#ef4444',
+    color: 'white',
+    border: 'none',
+    padding: '10px 16px',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontWeight: 'bold',
+  }}
+>
+  🔒 Cerrar sesión
+</button>
 
           <h2>Partidos</h2>
 
