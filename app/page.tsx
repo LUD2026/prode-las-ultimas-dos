@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 
 type ResultadoValor = 'local' | 'empate' | 'visitante'
@@ -48,11 +48,22 @@ export default function Home() {
   const [guardandoPerfil, setGuardandoPerfil] = useState(false)
   const [errorPerfil, setErrorPerfil] = useState('')
 
+  const [mostrarReglamento, setMostrarReglamento] = useState(false)
+
   const esAdmin = email === ADMIN_EMAIL
 
-  const partidoBloqueado = (fecha: string) => {
-    return new Date() >= new Date(fecha)
-  }
+  const primerPartido = useMemo(() => {
+    if (!partidos.length) return null
+
+    return [...partidos].sort(
+      (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime()
+    )[0]
+  }, [partidos])
+
+  const pronosticosBloqueados = useMemo(() => {
+    if (!primerPartido) return false
+    return new Date().getTime() >= new Date(primerPartido.fecha).getTime()
+  }, [primerPartido])
 
   const cargarTodo = async () => {
     setCargando(true)
@@ -88,6 +99,13 @@ export default function Home() {
         setNecesitaCompletarPerfil(true)
       } else {
         setNecesitaCompletarPerfil(false)
+
+        if (typeof window !== 'undefined') {
+          const yaVioReglamento = localStorage.getItem('reglamentoVisto')
+          if (!yaVioReglamento) {
+            setMostrarReglamento(true)
+          }
+        }
       }
 
       const { data: pronos } = await supabase
@@ -109,6 +127,7 @@ export default function Home() {
       setNombreUsuario('')
       setTelefono('')
       setNecesitaCompletarPerfil(false)
+      setMostrarReglamento(false)
     }
 
     const { data: partidosDB } = await supabase
@@ -160,7 +179,7 @@ export default function Home() {
 
   const guardarPronostico = async (id: number, valor: PronosticoValor) => {
     if (!userId) return
-    if (partidoBloqueado(partidos.find((p) => p.id === id)?.fecha || '')) return
+    if (pronosticosBloqueados) return
 
     setGuardandoId(id)
 
@@ -259,7 +278,22 @@ export default function Home() {
 
     setNecesitaCompletarPerfil(false)
     setGuardandoPerfil(false)
+
+    if (typeof window !== 'undefined') {
+      const yaVioReglamento = localStorage.getItem('reglamentoVisto')
+      if (!yaVioReglamento) {
+        setMostrarReglamento(true)
+      }
+    }
+
     await cargarTodo()
+  }
+
+  const cerrarReglamento = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('reglamentoVisto', 'true')
+    }
+    setMostrarReglamento(false)
   }
 
   const formatearFecha = (f: string) =>
@@ -280,6 +314,76 @@ export default function Home() {
       }}
     >
       <h1>Prode Las Últimas Dos ⚽</h1>
+
+      {mostrarReglamento && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: '#111827',
+              color: 'white',
+              maxWidth: 520,
+              width: '100%',
+              borderRadius: 14,
+              padding: 24,
+              border: '1px solid #374151',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+            }}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: 16 }}>📜 Reglamento</h2>
+
+            <div style={{ lineHeight: 1.6, color: '#e5e7eb', fontSize: 15 }}>
+              <p style={{ marginTop: 0 }}>
+                1. Cada participante debe ingresar con su cuenta para guardar sus pronósticos.
+              </p>
+              <p>
+                2. Los pronósticos podrán cargarse o modificarse únicamente hasta el inicio del primer partido del torneo.
+              </p>
+              <p>
+                3. Una vez comenzado el primer encuentro, no se podrán realizar cambios.
+              </p>
+              <p>
+                4. Sistema de puntos:
+                <br />• 1 punto por acertar ganador o empate.
+              </p>
+              <p>
+                5. En caso de empate en la tabla, se definirá por mayor cantidad de aciertos.
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                6. Cada usuario participa con una sola cuenta.
+              </p>
+            </div>
+
+            <button
+              onClick={cerrarReglamento}
+              style={{
+                marginTop: 20,
+                width: '100%',
+                background: '#2563eb',
+                color: 'white',
+                border: 'none',
+                padding: '14px 20px',
+                borderRadius: 10,
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontSize: 16,
+              }}
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
 
       {!email ? (
         <div
@@ -404,22 +508,64 @@ export default function Home() {
       ) : (
         <>
           <p>👤 {nombreUsuario || email}</p>
-          <button
-  onClick={() => supabase.auth.signOut()}
-  style={{
-    marginTop: 10,
-    marginBottom: 20,
-    background: '#ef4444',
-    color: 'white',
-    border: 'none',
-    padding: '10px 16px',
-    borderRadius: 8,
-    cursor: 'pointer',
-    fontWeight: 'bold',
-  }}
->
-  🔒 Cerrar sesión
-</button>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, marginBottom: 20 }}>
+            <button
+              onClick={() => setMostrarReglamento(true)}
+              style={{
+                background: '#374151',
+                color: 'white',
+                border: 'none',
+                padding: '10px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              📜 Ver reglamento
+            </button>
+
+            <button
+              onClick={() => supabase.auth.signOut()}
+              style={{
+                background: '#ef4444',
+                color: 'white',
+                border: 'none',
+                padding: '10px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              🔒 Cerrar sesión
+            </button>
+          </div>
+
+          {primerPartido && (
+            <div
+              style={{
+                background: pronosticosBloqueados ? '#7f1d1d' : '#1e3a8a',
+                color: 'white',
+                padding: 12,
+                borderRadius: 8,
+                marginBottom: 20,
+                border: pronosticosBloqueados
+                  ? '1px solid #ef4444'
+                  : '1px solid #60a5fa',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
+                {pronosticosBloqueados
+                  ? '🔒 Pronósticos cerrados'
+                  : '⏳ Pronósticos abiertos'}
+              </div>
+              <div>
+                {pronosticosBloqueados
+                  ? 'Ya comenzó el primer partido del torneo. No se pueden modificar los pronósticos.'
+                  : `Podés cargar o modificar pronósticos hasta el inicio del primer partido: ${formatearFecha(primerPartido.fecha)}`}
+              </div>
+            </div>
+          )}
 
           <h2>Partidos</h2>
 
@@ -453,14 +599,14 @@ export default function Home() {
                     {['local', 'empate', 'visitante'].map((v) => (
                       <button
                         key={v}
-                        disabled={partidoBloqueado(p.fecha) || guardandoId === p.id}
+                        disabled={pronosticosBloqueados || guardandoId === p.id}
                         onClick={() => guardarPronostico(p.id, v as PronosticoValor)}
                         style={{
                           fontWeight: sel === v ? 'bold' : 'normal',
-                          opacity: partidoBloqueado(p.fecha) ? 0.5 : 1,
+                          opacity: pronosticosBloqueados ? 0.5 : 1,
                           padding: '8px 12px',
                           borderRadius: 6,
-                          cursor: 'pointer',
+                          cursor: pronosticosBloqueados ? 'not-allowed' : 'pointer',
                           background: sel === v ? '#2563eb' : '#374151',
                           color: 'white',
                           border: 'none',
@@ -509,17 +655,25 @@ export default function Home() {
                     </div>
                   )}
 
-                  {partidoBloqueado(p.fecha) && <div>🔒 Cerrado</div>}
+                  {pronosticosBloqueados && <div style={{ marginTop: 8 }}>🔒 Cerrado</div>}
 
                   {esAdmin && (
                     <div style={{ marginTop: 10 }}>
                       <b>Admin:</b>
-                      <div style={{ display: 'flex', gap: 5 }}>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
                         {['local', 'empate', 'visitante'].map((v) => (
                           <button
                             key={v}
                             disabled={guardandoResultadoId === p.id}
                             onClick={() => guardarResultado(p.id, v as ResultadoValor)}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              background: '#6b7280',
+                              color: 'white',
+                              border: 'none',
+                            }}
                           >
                             {v === 'local'
                               ? p.equipo_local
