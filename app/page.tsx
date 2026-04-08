@@ -403,7 +403,7 @@ export default function Home() {
         </div>
       ) : (
         <>
-          <p>👤 {email}</p>
+          <p>👤 {nombreUsuario || email}</p>
           <button onClick={() => supabase.auth.signOut()}>Cerrar sesión</button>
 
           <h2>Partidos</h2>
