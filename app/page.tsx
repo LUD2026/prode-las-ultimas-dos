@@ -26,6 +26,8 @@ type RankingItem = {
   puntos: number
   aciertos: number
   pronosticados: number
+  username?: string | null
+  telefono?: string | null
 }
 
 const ADMIN_EMAIL = 'burrocas@gmail.com'
@@ -39,6 +41,12 @@ export default function Home() {
   const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(null)
   const [ranking, setRanking] = useState<RankingItem[]>([])
   const [cargando, setCargando] = useState(true)
+
+  const [nombreUsuario, setNombreUsuario] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [necesitaCompletarPerfil, setNecesitaCompletarPerfil] = useState(false)
+  const [guardandoPerfil, setGuardandoPerfil] = useState(false)
+  const [errorPerfil, setErrorPerfil] = useState('')
 
   const esAdmin = email === ADMIN_EMAIL
 
@@ -61,11 +69,26 @@ export default function Home() {
       await supabase.from('usuarios').upsert({
         id: user.id,
         email: user.email ?? null,
-        nombre:
-          user.user_metadata?.full_name ??
-          user.user_metadata?.name ??
-          null,
+        nombre: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
       })
+
+      const { data: usuarioDB } = await supabase
+        .from('usuarios')
+        .select('username, telefono, nombre')
+        .eq('id', user.id)
+        .single()
+
+      const usernameActual = usuarioDB?.username ?? ''
+      const telefonoActual = usuarioDB?.telefono ?? ''
+
+      setNombreUsuario(usernameActual)
+      setTelefono(telefonoActual)
+
+      if (!usernameActual || !telefonoActual) {
+        setNecesitaCompletarPerfil(true)
+      } else {
+        setNecesitaCompletarPerfil(false)
+      }
 
       const { data: pronos } = await supabase
         .from('pronosticos')
@@ -83,6 +106,9 @@ export default function Home() {
       setEmail(null)
       setUserId(null)
       setPronosticos({})
+      setNombreUsuario('')
+      setTelefono('')
+      setNecesitaCompletarPerfil(false)
     }
 
     const { data: partidosDB } = await supabase
@@ -111,11 +137,13 @@ export default function Home() {
         })
 
         return {
-          nombre: u.nombre || u.email,
+          nombre: u.username || u.nombre || u.email,
           email: u.email,
           puntos,
           aciertos: puntos,
           pronosticados: pronosUser.length,
+          username: u.username ?? null,
+          telefono: u.telefono ?? null,
         }
       })
 
@@ -155,6 +183,83 @@ export default function Home() {
 
     await cargarTodo()
     setGuardandoResultadoId(null)
+  }
+
+  const guardarPerfil = async () => {
+    if (!userId) return
+
+    setErrorPerfil('')
+
+    const usernameLimpio = nombreUsuario.trim()
+    const telefonoLimpio = telefono.trim()
+
+    if (!usernameLimpio) {
+      setErrorPerfil('Ingresá un nombre de usuario')
+      return
+    }
+
+    if (!telefonoLimpio) {
+      setErrorPerfil('Ingresá un celular')
+      return
+    }
+
+    if (usernameLimpio.length < 3) {
+      setErrorPerfil('El usuario debe tener al menos 3 caracteres')
+      return
+    }
+
+    const usernameValido = /^[a-zA-Z0-9_]+$/.test(usernameLimpio)
+    if (!usernameValido) {
+      setErrorPerfil('El usuario solo puede tener letras, números y guión bajo')
+      return
+    }
+
+    const telefonoValido = /^[0-9]{8,15}$/.test(telefonoLimpio)
+    if (!telefonoValido) {
+      setErrorPerfil('Ingresá un celular válido, solo números')
+      return
+    }
+
+    setGuardandoPerfil(true)
+
+    const usernameLower = usernameLimpio.toLowerCase()
+
+    const { data: usuarioExistente, error: errorBusqueda } = await supabase
+      .from('usuarios')
+      .select('id')
+      .eq('username_lower', usernameLower)
+      .neq('id', userId)
+
+    if (errorBusqueda) {
+      setErrorPerfil('Error al validar el usuario')
+      setGuardandoPerfil(false)
+      return
+    }
+
+    if (usuarioExistente && usuarioExistente.length > 0) {
+      setErrorPerfil('Ese nombre de usuario ya está en uso')
+      setGuardandoPerfil(false)
+      return
+    }
+
+    const { error: errorGuardar } = await supabase
+      .from('usuarios')
+      .update({
+        username: usernameLimpio,
+        username_lower: usernameLower,
+        telefono: telefonoLimpio,
+      })
+      .eq('id', userId)
+
+    if (errorGuardar) {
+      setErrorPerfil('No se pudo guardar el perfil')
+      setGuardandoPerfil(false)
+      return
+    }
+
+    setNecesitaCompletarPerfil(false)
+    setGuardandoPerfil(false)
+    await cargarTodo()
   }
 
   const formatearFecha = (f: string) =>
@@ -206,6 +311,94 @@ export default function Home() {
             }}
           >
             Ingresar con Google
+          </button>
+        </div>
+      ) : necesitaCompletarPerfil ? (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '60vh',
+            textAlign: 'center',
+            maxWidth: 400,
+            margin: '0 auto',
+          }}
+        >
+          <h2 style={{ marginBottom: 10 }}>Completá tus datos</h2>
+          <p style={{ marginBottom: 20, color: '#cbd5e1' }}>
+            Antes de continuar, ingresá un usuario único y tu celular.
+          </p>
+
+          <input
+            type="text"
+            placeholder="Usuario"
+            value={nombreUsuario}
+            onChange={(e) => setNombreUsuario(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px',
+              marginBottom: '10px',
+              borderRadius: 8,
+              border: '1px solid #475569',
+              background: '#111827',
+              color: 'white',
+            }}
+          />
+
+          <input
+            type="text"
+            placeholder="Celular"
+            value={telefono}
+            onChange={(e) => setTelefono(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px',
+              marginBottom: '10px',
+              borderRadius: 8,
+              border: '1px solid #475569',
+              background: '#111827',
+              color: 'white',
+            }}
+          />
+
+          {errorPerfil && (
+            <p style={{ color: '#f87171', marginBottom: 10 }}>{errorPerfil}</p>
+          )}
+
+          <button
+            onClick={guardarPerfil}
+            disabled={guardandoPerfil}
+            style={{
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              padding: '14px 24px',
+              borderRadius: 10,
+              fontSize: 16,
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            {guardandoPerfil ? 'Guardando...' : 'Guardar y continuar'}
+          </button>
+
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{
+              marginTop: 12,
+              background: 'transparent',
+              color: '#cbd5e1',
+              border: '1px solid #475569',
+              padding: '10px 16px',
+              borderRadius: 10,
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            Cerrar sesión
           </button>
         </div>
       ) : (
@@ -261,8 +454,8 @@ export default function Home() {
                         {v === 'local'
                           ? p.equipo_local
                           : v === 'visitante'
-                          ? p.equipo_visitante
-                          : 'Empate'}
+                            ? p.equipo_visitante
+                            : 'Empate'}
                       </button>
                     ))}
                   </div>
@@ -272,10 +465,10 @@ export default function Home() {
                     {sel === 'local'
                       ? p.equipo_local
                       : sel === 'visitante'
-                      ? p.equipo_visitante
-                      : sel === 'empate'
-                      ? 'Empate'
-                      : 'Sin elegir'}
+                        ? p.equipo_visitante
+                        : sel === 'empate'
+                          ? 'Empate'
+                          : 'Sin elegir'}
                   </div>
 
                   <div style={{ marginTop: 6 }}>
@@ -283,10 +476,10 @@ export default function Home() {
                     {p.resultado === 'local'
                       ? p.equipo_local
                       : p.resultado === 'visitante'
-                      ? p.equipo_visitante
-                      : p.resultado === 'empate'
-                      ? 'Empate'
-                      : 'Sin cargar'}
+                        ? p.equipo_visitante
+                        : p.resultado === 'empate'
+                          ? 'Empate'
+                          : 'Sin cargar'}
                   </div>
 
                   {p.resultado && sel && (
@@ -316,8 +509,8 @@ export default function Home() {
                             {v === 'local'
                               ? p.equipo_local
                               : v === 'visitante'
-                              ? p.equipo_visitante
-                              : 'Empate'}
+                                ? p.equipo_visitante
+                                : 'Empate'}
                           </button>
                         ))}
                       </div>
@@ -369,12 +562,12 @@ export default function Home() {
                     background: soyYo
                       ? '#2563eb'
                       : i === 0
-                      ? '#fbbf24'
-                      : i === 1
-                      ? '#9ca3af'
-                      : i === 2
-                      ? '#b45309'
-                      : '#1f2937',
+                        ? '#fbbf24'
+                        : i === 1
+                          ? '#9ca3af'
+                          : i === 2
+                            ? '#b45309'
+                            : '#1f2937',
                     color: soyYo || i < 3 ? 'black' : 'white',
                     fontWeight: soyYo || i < 3 ? 'bold' : 'normal',
                     border: soyYo ? '2px solid white' : 'none',
