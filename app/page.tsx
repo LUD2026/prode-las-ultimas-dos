@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 
-type ResultadoValor = 'local' | 'empate' | 'visitante'
-type PronosticoValor = 'local' | 'empate' | 'visitante'
-
 type Partido = {
   id: number
   equipo_local: string
@@ -13,18 +10,23 @@ type Partido = {
   fecha: string
   grupo: string | null
   fase: string | null
-  resultado: ResultadoValor | null
+  resultado_local: number | null
+  resultado_visitante: number | null
 }
 
 type PronosticosMap = {
-  [partidoId: number]: PronosticoValor
+  [partidoId: number]: {
+    goles_local: string
+    goles_visitante: string
+  }
 }
 
 type RankingItem = {
   nombre: string
   email: string
   puntos: number
-  aciertos: number
+  aciertosExactos: number
+  aciertosResultado: number
   pronosticados: number
   username?: string | null
   telefono?: string | null
@@ -64,6 +66,12 @@ export default function Home() {
     if (!primerPartido) return false
     return new Date().getTime() >= new Date(primerPartido.fecha).getTime()
   }, [primerPartido])
+
+  const obtenerResultado = (local: number, visitante: number) => {
+    if (local > visitante) return 'local'
+    if (local < visitante) return 'visitante'
+    return 'empate'
+  }
 
   const cargarTodo = async () => {
     setCargando(true)
@@ -116,7 +124,16 @@ export default function Home() {
       if (pronos) {
         const mapa: PronosticosMap = {}
         pronos.forEach((p: any) => {
-          mapa[p.partido_id] = p.pronostico
+          mapa[p.partido_id] = {
+            goles_local:
+              p.goles_local !== null && p.goles_local !== undefined
+                ? String(p.goles_local)
+                : '',
+            goles_visitante:
+              p.goles_visitante !== null && p.goles_visitante !== undefined
+                ? String(p.goles_visitante)
+                : '',
+          }
         })
         setPronosticos(mapa)
       }
@@ -149,24 +166,64 @@ export default function Home() {
         const pronosUser = todosPronos.filter((p: any) => p.usuario_id === u.id)
 
         let puntos = 0
+        let aciertosExactos = 0
+        let aciertosResultado = 0
 
         pronosUser.forEach((p: any) => {
           const partido = partidosData.find((pp) => pp.id === p.partido_id)
-          if (partido?.resultado === p.pronostico) puntos++
+
+          if (
+            !partido ||
+            partido.resultado_local === null ||
+            partido.resultado_visitante === null ||
+            p.goles_local === null ||
+            p.goles_visitante === null
+          ) {
+            return
+          }
+
+          const resultadoReal = obtenerResultado(
+            partido.resultado_local,
+            partido.resultado_visitante
+          )
+
+          const resultadoPronosticado = obtenerResultado(
+            p.goles_local,
+            p.goles_visitante
+          )
+
+          if (resultadoReal === resultadoPronosticado) {
+            puntos += 1
+            aciertosResultado += 1
+          }
+
+          if (
+            partido.resultado_local === p.goles_local &&
+            partido.resultado_visitante === p.goles_visitante
+          ) {
+            puntos += 1
+            aciertosExactos += 1
+          }
         })
 
         return {
           nombre: u.username || u.nombre || u.email,
           email: u.email,
           puntos,
-          aciertos: puntos,
+          aciertosExactos,
+          aciertosResultado,
           pronosticados: pronosUser.length,
           username: u.username ?? null,
           telefono: u.telefono ?? null,
         }
       })
 
-      rank.sort((a, b) => b.puntos - a.puntos)
+      rank.sort((a, b) => {
+        if (b.puntos !== a.puntos) return b.puntos - a.puntos
+        if (b.aciertosExactos !== a.aciertosExactos) return b.aciertosExactos - a.aciertosExactos
+        return b.aciertosResultado - a.aciertosResultado
+      })
+
       setRanking(rank)
     }
 
@@ -177,28 +234,82 @@ export default function Home() {
     cargarTodo()
   }, [])
 
-  const guardarPronostico = async (id: number, valor: PronosticoValor) => {
+  const actualizarPronostico = (
+    partidoId: number,
+    campo: 'goles_local' | 'goles_visitante',
+    valor: string
+  ) => {
+    if (pronosticosBloqueados) return
+    if (valor !== '' && !/^\d+$/.test(valor)) return
+
+    setPronosticos((prev) => ({
+      ...prev,
+      [partidoId]: {
+        goles_local: prev[partidoId]?.goles_local ?? '',
+        goles_visitante: prev[partidoId]?.goles_visitante ?? '',
+        [campo]: valor,
+      },
+    }))
+  }
+
+  const guardarPronostico = async (id: number) => {
     if (!userId) return
     if (pronosticosBloqueados) return
+
+    const actual = pronosticos[id]
+    const golesLocal = actual?.goles_local ?? ''
+    const golesVisitante = actual?.goles_visitante ?? ''
+
+    if (golesLocal === '' || golesVisitante === '') return
 
     setGuardandoId(id)
 
     await supabase.from('pronosticos').upsert({
       usuario_id: userId,
       partido_id: id,
-      pronostico: valor,
+      goles_local: Number(golesLocal),
+      goles_visitante: Number(golesVisitante),
     })
 
     await cargarTodo()
     setGuardandoId(null)
   }
 
-  const guardarResultado = async (id: number, valor: ResultadoValor) => {
+  const actualizarResultadoAdmin = (
+    partidoId: number,
+    campo: 'resultado_local' | 'resultado_visitante',
+    valor: string
+  ) => {
+    if (valor !== '' && !/^\d+$/.test(valor)) return
+
+    setPartidos((prev) =>
+      prev.map((p) =>
+        p.id === partidoId
+          ? {
+              ...p,
+              [campo]: valor === '' ? null : Number(valor),
+            }
+          : p
+      )
+    )
+  }
+
+  const guardarResultado = async (id: number) => {
     if (!esAdmin) return
+
+    const partido = partidos.find((p) => p.id === id)
+    if (!partido) return
+    if (partido.resultado_local === null || partido.resultado_visitante === null) return
 
     setGuardandoResultadoId(id)
 
-    await supabase.from('partidos').update({ resultado: valor }).eq('id', id)
+    await supabase
+      .from('partidos')
+      .update({
+        resultado_local: partido.resultado_local,
+        resultado_visitante: partido.resultado_visitante,
+      })
+      .eq('id', id)
 
     await cargarTodo()
     setGuardandoResultadoId(null)
@@ -355,9 +466,10 @@ export default function Home() {
               <p>
                 4. Sistema de puntos:
                 <br />• 1 punto por acertar ganador o empate.
+                <br />• +1 punto extra por acertar el resultado exacto.
               </p>
               <p>
-                5. En caso de empate en la tabla, se definirá por mayor cantidad de aciertos.
+                5. En caso de empate en la tabla, se definirá por mayor cantidad de resultados exactos.
               </p>
               <p style={{ marginBottom: 0 }}>
                 6. Cada usuario participa con una sola cuenta.
@@ -573,7 +685,13 @@ export default function Home() {
             <p>Cargando...</p>
           ) : (
             partidos.map((p) => {
-              const sel = pronosticos[p.id]
+              const sel = pronosticos[p.id] ?? {
+                goles_local: '',
+                goles_visitante: '',
+              }
+
+              const partidoTieneResultado =
+                p.resultado_local !== null && p.resultado_visitante !== null
 
               return (
                 <div
@@ -595,93 +713,198 @@ export default function Home() {
                     {p.equipo_local} vs {p.equipo_visitante}
                   </div>
 
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {['local', 'empate', 'visitante'].map((v) => (
-                      <button
-                        key={v}
-                        disabled={pronosticosBloqueados || guardandoId === p.id}
-                        onClick={() => guardarPronostico(p.id, v as PronosticoValor)}
-                        style={{
-                          fontWeight: sel === v ? 'bold' : 'normal',
-                          opacity: pronosticosBloqueados ? 0.5 : 1,
-                          padding: '8px 12px',
-                          borderRadius: 6,
-                          cursor: pronosticosBloqueados ? 'not-allowed' : 'pointer',
-                          background: sel === v ? '#2563eb' : '#374151',
-                          color: 'white',
-                          border: 'none',
-                        }}
-                      >
-                        {v === 'local'
-                          ? p.equipo_local
-                          : v === 'visitante'
-                            ? p.equipo_visitante
-                            : 'Empate'}
-                      </button>
-                    ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      value={sel.goles_local}
+                      onChange={(e) =>
+                        actualizarPronostico(p.id, 'goles_local', e.target.value)
+                      }
+                      disabled={pronosticosBloqueados}
+                      placeholder="0"
+                      style={{
+                        width: 70,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #475569',
+                        background: pronosticosBloqueados ? '#374151' : '#111827',
+                        color: 'white',
+                        textAlign: 'center',
+                      }}
+                    />
+
+                    <span style={{ fontWeight: 'bold', fontSize: 18 }}>-</span>
+
+                    <input
+                      type="number"
+                      min="0"
+                      value={sel.goles_visitante}
+                      onChange={(e) =>
+                        actualizarPronostico(p.id, 'goles_visitante', e.target.value)
+                      }
+                      disabled={pronosticosBloqueados}
+                      placeholder="0"
+                      style={{
+                        width: 70,
+                        padding: '10px',
+                        borderRadius: 8,
+                        border: '1px solid #475569',
+                        background: pronosticosBloqueados ? '#374151' : '#111827',
+                        color: 'white',
+                        textAlign: 'center',
+                      }}
+                    />
+
+                    <button
+                      disabled={pronosticosBloqueados || guardandoId === p.id}
+                      onClick={() => guardarPronostico(p.id)}
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        border: 'none',
+                        background: pronosticosBloqueados ? '#6b7280' : '#2563eb',
+                        color: 'white',
+                        cursor: pronosticosBloqueados ? 'not-allowed' : 'pointer',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {guardandoId === p.id ? 'Guardando...' : 'Guardar'}
+                    </button>
                   </div>
 
                   <div style={{ marginTop: 10 }}>
                     <b>Tu pronóstico:</b>{' '}
-                    {sel === 'local'
-                      ? p.equipo_local
-                      : sel === 'visitante'
-                        ? p.equipo_visitante
-                        : sel === 'empate'
-                          ? 'Empate'
-                          : 'Sin elegir'}
+                    {sel.goles_local !== '' && sel.goles_visitante !== ''
+                      ? `${p.equipo_local} ${sel.goles_local} - ${sel.goles_visitante} ${p.equipo_visitante}`
+                      : 'Sin elegir'}
                   </div>
 
                   <div style={{ marginTop: 6 }}>
                     <b>Resultado real:</b>{' '}
-                    {p.resultado === 'local'
-                      ? p.equipo_local
-                      : p.resultado === 'visitante'
-                        ? p.equipo_visitante
-                        : p.resultado === 'empate'
-                          ? 'Empate'
-                          : 'Sin cargar'}
+                    {partidoTieneResultado
+                      ? `${p.equipo_local} ${p.resultado_local} - ${p.resultado_visitante} ${p.equipo_visitante}`
+                      : 'Sin cargar'}
                   </div>
 
-                  {p.resultado && sel && (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        fontWeight: 'bold',
-                        color: p.resultado === sel ? '#22c55e' : '#ef4444',
-                      }}
-                    >
-                      {p.resultado === sel ? '✅ Acertaste' : '❌ No acertaste'}
-                    </div>
-                  )}
+                  {partidoTieneResultado &&
+                    sel.goles_local !== '' &&
+                    sel.goles_visitante !== '' && (
+                      <div style={{ marginTop: 8 }}>
+                        {(() => {
+                          const gl = Number(sel.goles_local)
+                          const gv = Number(sel.goles_visitante)
+
+                          const acertoResultado =
+                            obtenerResultado(gl, gv) ===
+                            obtenerResultado(
+                              p.resultado_local as number,
+                              p.resultado_visitante as number
+                            )
+
+                          const acertoExacto =
+                            gl === p.resultado_local && gv === p.resultado_visitante
+
+                          return (
+                            <>
+                              <div
+                                style={{
+                                  fontWeight: 'bold',
+                                  color: acertoResultado ? '#22c55e' : '#ef4444',
+                                }}
+                              >
+                                {acertoResultado
+                                  ? '✅ Acertaste el resultado'
+                                  : '❌ No acertaste el resultado'}
+                              </div>
+
+                              {acertoExacto && (
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    fontWeight: 'bold',
+                                    color: '#facc15',
+                                  }}
+                                >
+                                  ⭐ También acertaste el marcador exacto
+                                </div>
+                              )}
+                            </>
+                          )
+                        })()}
+                      </div>
+                    )}
 
                   {pronosticosBloqueados && <div style={{ marginTop: 8 }}>🔒 Cerrado</div>}
 
                   {esAdmin && (
-                    <div style={{ marginTop: 10 }}>
-                      <b>Admin:</b>
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
-                        {['local', 'empate', 'visitante'].map((v) => (
-                          <button
-                            key={v}
-                            disabled={guardandoResultadoId === p.id}
-                            onClick={() => guardarResultado(p.id, v as ResultadoValor)}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: 6,
-                              cursor: 'pointer',
-                              background: '#6b7280',
-                              color: 'white',
-                              border: 'none',
-                            }}
-                          >
-                            {v === 'local'
-                              ? p.equipo_local
-                              : v === 'visitante'
-                                ? p.equipo_visitante
-                                : 'Empate'}
-                          </button>
-                        ))}
+                    <div style={{ marginTop: 14 }}>
+                      <b>Admin: cargar resultado real</b>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          flexWrap: 'wrap',
+                          marginTop: 8,
+                        }}
+                      >
+                        <input
+                          type="number"
+                          min="0"
+                          value={p.resultado_local ?? ''}
+                          onChange={(e) =>
+                            actualizarResultadoAdmin(p.id, 'resultado_local', e.target.value)
+                          }
+                          placeholder="0"
+                          style={{
+                            width: 70,
+                            padding: '10px',
+                            borderRadius: 8,
+                            border: '1px solid #475569',
+                            background: '#111827',
+                            color: 'white',
+                            textAlign: 'center',
+                          }}
+                        />
+
+                        <span style={{ fontWeight: 'bold', fontSize: 18 }}>-</span>
+
+                        <input
+                          type="number"
+                          min="0"
+                          value={p.resultado_visitante ?? ''}
+                          onChange={(e) =>
+                            actualizarResultadoAdmin(p.id, 'resultado_visitante', e.target.value)
+                          }
+                          placeholder="0"
+                          style={{
+                            width: 70,
+                            padding: '10px',
+                            borderRadius: 8,
+                            border: '1px solid #475569',
+                            background: '#111827',
+                            color: 'white',
+                            textAlign: 'center',
+                          }}
+                        />
+
+                        <button
+                          disabled={guardandoResultadoId === p.id}
+                          onClick={() => guardarResultado(p.id)}
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: '#16a34a',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          {guardandoResultadoId === p.id ? 'Guardando...' : 'Guardar resultado'}
+                        </button>
                       </div>
                     </div>
                   )}
@@ -749,7 +972,7 @@ export default function Home() {
                   <div style={{ textAlign: 'right' }}>
                     <div>🏅 {r.puntos} pts</div>
                     <div style={{ fontSize: 12 }}>
-                      ✅ {r.aciertos} / 📊 {r.pronosticados}
+                      🎯 {r.aciertosResultado} | ⭐ {r.aciertosExactos} | 📊 {r.pronosticados}
                     </div>
                   </div>
                 </div>
