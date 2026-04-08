@@ -79,6 +79,10 @@ export default function Home() {
         })
         setPronosticos(mapa)
       }
+    } else {
+      setEmail(null)
+      setUserId(null)
+      setPronosticos({})
     }
 
     const { data: partidosDB } = await supabase
@@ -173,9 +177,37 @@ export default function Home() {
       <h1>Prode Las Últimas Dos ⚽</h1>
 
       {!email ? (
-        <button onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}>
-          Ingresar con Google
-        </button>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '60vh',
+            textAlign: 'center',
+          }}
+        >
+          <h2 style={{ marginBottom: 10 }}>Bienvenido al Prode Las Últimas Dos ⚽</h2>
+          <p style={{ marginBottom: 20, color: '#cbd5e1' }}>
+            Ingresá para cargar tus pronósticos y ver el ranking.
+          </p>
+
+          <button
+            onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
+            style={{
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              padding: '14px 24px',
+              borderRadius: 10,
+              fontSize: 16,
+              fontWeight: 'bold',
+              cursor: 'pointer',
+            }}
+          >
+            Ingresar con Google
+          </button>
+        </div>
       ) : (
         <>
           <p>👤 {email}</p>
@@ -214,7 +246,7 @@ export default function Home() {
                       <button
                         key={v}
                         disabled={partidoBloqueado(p.fecha) || guardandoId === p.id}
-                        onClick={() => guardarPronostico(p.id, v as any)}
+                        onClick={() => guardarPronostico(p.id, v as PronosticoValor)}
                         style={{
                           fontWeight: sel === v ? 'bold' : 'normal',
                           opacity: partidoBloqueado(p.fecha) ? 0.5 : 1,
@@ -279,7 +311,7 @@ export default function Home() {
                           <button
                             key={v}
                             disabled={guardandoResultadoId === p.id}
-                            onClick={() => guardarResultado(p.id, v as any)}
+                            onClick={() => guardarResultado(p.id, v as ResultadoValor)}
                           >
                             {v === 'local'
                               ? p.equipo_local
@@ -295,71 +327,73 @@ export default function Home() {
               )
             })
           )}
-{(() => {
-  const miPos = ranking.findIndex((r) => r.email === email)
 
-  if (miPos === -1) return null
+          {(() => {
+            const miPos = ranking.findIndex((r) => r.email === email)
 
-  const yo = ranking[miPos]
+            if (miPos === -1) return null
 
-  return (
-    <div
-      style={{
-        background: '#2563eb',
-        padding: 12,
-        borderRadius: 8,
-        marginTop: 20,
-        marginBottom: 10,
-        fontWeight: 'bold',
-      }}
-    >
-      👤 Estás {miPos + 1}° con {yo.puntos} pts
-    </div>
-  )
-})()}
-<h2 style={{ marginTop: 30 }}>🏆 Ranking</h2>
+            const yo = ranking[miPos]
 
-<div style={{ marginTop: 10 }}>
-  {ranking.map((r, i) => {
-    const soyYo = r.email === email
+            return (
+              <div
+                style={{
+                  background: '#2563eb',
+                  padding: 12,
+                  borderRadius: 8,
+                  marginTop: 20,
+                  marginBottom: 10,
+                  fontWeight: 'bold',
+                }}
+              >
+                👤 Estás {miPos + 1}° con {yo.puntos} pts
+              </div>
+            )
+          })()}
 
-    return (
-      <div
-        key={i}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          padding: 12,
-          marginBottom: 8,
-          borderRadius: 8,
-          background: soyYo
-            ? '#2563eb'
-            : i === 0
-            ? '#fbbf24'
-            : i === 1
-            ? '#9ca3af'
-            : i === 2
-            ? '#b45309'
-            : '#1f2937',
-          color: soyYo || i < 3 ? 'black' : 'white',
-          fontWeight: soyYo || i < 3 ? 'bold' : 'normal',
-          border: soyYo ? '2px solid white' : 'none',
-        }}
-      >
-        <div>
-          {i + 1}. {r.nombre} {soyYo ? '👈 Vos' : ''}
-        </div>
+          <h2 style={{ marginTop: 30 }}>🏆 Ranking</h2>
 
-        <div style={{ textAlign: 'right' }}>
-          <div>🏅 {r.puntos} pts</div>
-          <div style={{ fontSize: 12 }}>
-            ✅ {r.aciertos} / 📊 {r.pronosticados}
+          <div style={{ marginTop: 10 }}>
+            {ranking.map((r, i) => {
+              const soyYo = r.email === email
+
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    padding: 12,
+                    marginBottom: 8,
+                    borderRadius: 8,
+                    background: soyYo
+                      ? '#2563eb'
+                      : i === 0
+                      ? '#fbbf24'
+                      : i === 1
+                      ? '#9ca3af'
+                      : i === 2
+                      ? '#b45309'
+                      : '#1f2937',
+                    color: soyYo || i < 3 ? 'black' : 'white',
+                    fontWeight: soyYo || i < 3 ? 'bold' : 'normal',
+                    border: soyYo ? '2px solid white' : 'none',
+                  }}
+                >
+                  <div>
+                    {i + 1}. {r.nombre} {soyYo ? '👈 Vos' : ''}
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div>🏅 {r.puntos} pts</div>
+                    <div style={{ fontSize: 12 }}>
+                      ✅ {r.aciertos} / 📊 {r.pronosticados}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </div>
-      </div>
-    )
-  })}
-</div>
         </>
       )}
     </div>
