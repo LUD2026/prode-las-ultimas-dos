@@ -10,6 +10,7 @@ type Partido = {
   fecha: string
   grupo: string | null
   fase: string | null
+  jornada: number | null
   resultado_local: number | null
   resultado_visitante: number | null
 }
@@ -45,7 +46,13 @@ export default function Home() {
   const [pronosticos, setPronosticos] = useState<PronosticosMap>({})
   const [estadoGuardado, setEstadoGuardado] = useState<EstadoGuardadoMap>({})
   const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(null)
-  const [ranking, setRanking] = useState<RankingItem[]>([])
+
+  const [rankingGeneral, setRankingGeneral] = useState<RankingItem[]>([])
+  const [rankingFecha1, setRankingFecha1] = useState<RankingItem[]>([])
+  const [rankingFecha2, setRankingFecha2] = useState<RankingItem[]>([])
+  const [rankingFecha3, setRankingFecha3] = useState<RankingItem[]>([])
+  const [vistaRanking, setVistaRanking] = useState<'general' | 'fecha1' | 'fecha2' | 'fecha3'>('general')
+
   const [cargando, setCargando] = useState(true)
 
   const [nombreUsuario, setNombreUsuario] = useState('')
@@ -71,10 +78,98 @@ export default function Home() {
     return new Date().getTime() >= new Date(primerPartido.fecha).getTime()
   }, [primerPartido])
 
+  const rankingMostrado =
+    vistaRanking === 'fecha1'
+      ? rankingFecha1
+      : vistaRanking === 'fecha2'
+        ? rankingFecha2
+        : vistaRanking === 'fecha3'
+          ? rankingFecha3
+          : rankingGeneral
+
   const obtenerResultado = (local: number, visitante: number) => {
     if (local > visitante) return 'local'
     if (local < visitante) return 'visitante'
     return 'empate'
+  }
+
+  const calcularRanking = (
+    usuarios: any[],
+    todosPronos: any[],
+    partidosData: Partido[],
+    jornada?: number
+  ) => {
+    const partidosFiltrados = jornada
+      ? partidosData.filter((p) => p.jornada === jornada)
+      : partidosData
+
+    const idsPartidos = new Set(partidosFiltrados.map((p) => p.id))
+
+    const rank = usuarios.map((u: any) => {
+      const pronosUser = todosPronos.filter(
+        (p: any) => p.usuario_id === u.id && idsPartidos.has(p.partido_id)
+      )
+
+      let puntos = 0
+      let aciertosExactos = 0
+      let aciertosResultado = 0
+
+      pronosUser.forEach((p: any) => {
+        const partido = partidosFiltrados.find((pp) => pp.id === p.partido_id)
+
+        if (
+          !partido ||
+          partido.resultado_local === null ||
+          partido.resultado_visitante === null ||
+          p.goles_local === null ||
+          p.goles_visitante === null
+        ) {
+          return
+        }
+
+        const resultadoReal = obtenerResultado(
+          partido.resultado_local,
+          partido.resultado_visitante
+        )
+
+        const resultadoPronosticado = obtenerResultado(
+          p.goles_local,
+          p.goles_visitante
+        )
+
+        if (resultadoReal === resultadoPronosticado) {
+          puntos += 1
+          aciertosResultado += 1
+        }
+
+        if (
+          partido.resultado_local === p.goles_local &&
+          partido.resultado_visitante === p.goles_visitante
+        ) {
+          puntos += 1
+          aciertosExactos += 1
+        }
+      })
+
+      return {
+        nombre: u.username || u.nombre || u.email,
+        email: u.email,
+        puntos,
+        aciertosExactos,
+        aciertosResultado,
+        pronosticados: pronosUser.length,
+        username: u.username ?? null,
+        telefono: u.telefono ?? null,
+      }
+    })
+
+    rank.sort((a, b) => {
+      if (b.puntos !== a.puntos) return b.puntos - a.puntos
+      if (b.aciertosExactos !== a.aciertosExactos) return b.aciertosExactos - a.aciertosExactos
+      return b.aciertosResultado - a.aciertosResultado
+    })
+
+    return rank
   }
 
   const cargarTodo = async () => {
@@ -166,69 +261,10 @@ export default function Home() {
     const { data: todosPronos } = await supabase.from('pronosticos').select('*')
 
     if (usuarios && todosPronos && partidosData) {
-      const rank = usuarios.map((u: any) => {
-        const pronosUser = todosPronos.filter((p: any) => p.usuario_id === u.id)
-
-        let puntos = 0
-        let aciertosExactos = 0
-        let aciertosResultado = 0
-
-        pronosUser.forEach((p: any) => {
-          const partido = partidosData.find((pp) => pp.id === p.partido_id)
-
-          if (
-            !partido ||
-            partido.resultado_local === null ||
-            partido.resultado_visitante === null ||
-            p.goles_local === null ||
-            p.goles_visitante === null
-          ) {
-            return
-          }
-
-          const resultadoReal = obtenerResultado(
-            partido.resultado_local,
-            partido.resultado_visitante
-          )
-
-          const resultadoPronosticado = obtenerResultado(
-            p.goles_local,
-            p.goles_visitante
-          )
-
-          if (resultadoReal === resultadoPronosticado) {
-            puntos += 1
-            aciertosResultado += 1
-          }
-
-          if (
-            partido.resultado_local === p.goles_local &&
-            partido.resultado_visitante === p.goles_visitante
-          ) {
-            puntos += 1
-            aciertosExactos += 1
-          }
-        })
-
-        return {
-          nombre: u.username || u.nombre || u.email,
-          email: u.email,
-          puntos,
-          aciertosExactos,
-          aciertosResultado,
-          pronosticados: pronosUser.length,
-          username: u.username ?? null,
-          telefono: u.telefono ?? null,
-        }
-      })
-
-      rank.sort((a, b) => {
-        if (b.puntos !== a.puntos) return b.puntos - a.puntos
-        if (b.aciertosExactos !== a.aciertosExactos) return b.aciertosExactos - a.aciertosExactos
-        return b.aciertosResultado - a.aciertosResultado
-      })
-
-      setRanking(rank)
+      setRankingGeneral(calcularRanking(usuarios, todosPronos, partidosData))
+      setRankingFecha1(calcularRanking(usuarios, todosPronos, partidosData, 1))
+      setRankingFecha2(calcularRanking(usuarios, todosPronos, partidosData, 2))
+      setRankingFecha3(calcularRanking(usuarios, todosPronos, partidosData, 3))
     }
 
     setCargando(false)
@@ -730,7 +766,7 @@ export default function Home() {
                   }}
                 >
                   <div style={{ fontSize: 14, marginBottom: 6 }}>
-                    Grupo {p.grupo} - {formatearFecha(p.fecha)}
+                    Fecha {p.jornada ?? '-'} - Grupo {p.grupo} - {formatearFecha(p.fecha)}
                   </div>
 
                   <div style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
@@ -960,11 +996,11 @@ export default function Home() {
           )}
 
           {(() => {
-            const miPos = ranking.findIndex((r) => r.email === email)
+            const miPos = rankingMostrado.findIndex((r) => r.email === email)
 
             if (miPos === -1) return null
 
-            const yo = ranking[miPos]
+            const yo = rankingMostrado[miPos]
 
             return (
               <div
@@ -984,8 +1020,78 @@ export default function Home() {
 
           <h2 style={{ marginTop: 30 }}>🏆 Ranking</h2>
 
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              marginTop: 10,
+              marginBottom: 16,
+            }}
+          >
+            <button
+              onClick={() => setVistaRanking('fecha1')}
+              style={{
+                background: vistaRanking === 'fecha1' ? '#2563eb' : '#374151',
+                color: 'white',
+                border: 'none',
+                padding: '10px 14px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              Fecha 1
+            </button>
+
+            <button
+              onClick={() => setVistaRanking('fecha2')}
+              style={{
+                background: vistaRanking === 'fecha2' ? '#2563eb' : '#374151',
+                color: 'white',
+                border: 'none',
+                padding: '10px 14px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              Fecha 2
+            </button>
+
+            <button
+              onClick={() => setVistaRanking('fecha3')}
+              style={{
+                background: vistaRanking === 'fecha3' ? '#2563eb' : '#374151',
+                color: 'white',
+                border: 'none',
+                padding: '10px 14px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              Fecha 3
+            </button>
+
+            <button
+              onClick={() => setVistaRanking('general')}
+              style={{
+                background: vistaRanking === 'general' ? '#16a34a' : '#374151',
+                color: 'white',
+                border: 'none',
+                padding: '10px 14px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              General
+            </button>
+          </div>
+
           <div style={{ marginTop: 10 }}>
-            {ranking.map((r, i) => {
+            {rankingMostrado.map((r, i) => {
               const soyYo = r.email === email
 
               return (
