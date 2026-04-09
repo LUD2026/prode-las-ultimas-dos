@@ -32,6 +32,10 @@ type RankingItem = {
   telefono?: string | null
 }
 
+type EstadoGuardadoMap = {
+  [partidoId: number]: 'guardando' | 'guardado' | undefined
+}
+
 const ADMIN_EMAIL = 'burrocas@gmail.com'
 
 export default function Home() {
@@ -39,9 +43,8 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null)
   const [partidos, setPartidos] = useState<Partido[]>([])
   const [pronosticos, setPronosticos] = useState<PronosticosMap>({})
-const [guardandoId, setGuardandoId] = useState<number | null>(null)
-const [guardadoId, setGuardadoId] = useState<number | null>(null)
-const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(null)
+  const [estadoGuardado, setEstadoGuardado] = useState<EstadoGuardadoMap>({})
+  const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(null)
   const [ranking, setRanking] = useState<RankingItem[]>([])
   const [cargando, setCargando] = useState(true)
 
@@ -235,52 +238,56 @@ const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(
     cargarTodo()
   }, [])
 
-  const actualizarPronostico = (
+  const actualizarPronostico = async (
     partidoId: number,
     campo: 'goles_local' | 'goles_visitante',
     valor: string
   ) => {
+    if (!userId) return
     if (pronosticosBloqueados) return
     if (valor !== '' && !/^\d+$/.test(valor)) return
 
+    const actual = pronosticos[partidoId] ?? {
+      goles_local: '',
+      goles_visitante: '',
+    }
+
+    const actualizado = {
+      ...actual,
+      [campo]: valor,
+    }
+
     setPronosticos((prev) => ({
       ...prev,
-      [partidoId]: {
-        goles_local: prev[partidoId]?.goles_local ?? '',
-        goles_visitante: prev[partidoId]?.goles_visitante ?? '',
-        [campo]: valor,
-      },
+      [partidoId]: actualizado,
     }))
+
+    if (actualizado.goles_local !== '' && actualizado.goles_visitante !== '') {
+      setEstadoGuardado((prev) => ({
+        ...prev,
+        [partidoId]: 'guardando',
+      }))
+
+      await supabase.from('pronosticos').upsert({
+        usuario_id: userId,
+        partido_id: partidoId,
+        goles_local: Number(actualizado.goles_local),
+        goles_visitante: Number(actualizado.goles_visitante),
+      })
+
+      setEstadoGuardado((prev) => ({
+        ...prev,
+        [partidoId]: 'guardado',
+      }))
+
+      setTimeout(() => {
+        setEstadoGuardado((prev) => ({
+          ...prev,
+          [partidoId]: undefined,
+        }))
+      }, 2000)
+    }
   }
-
-const guardarPronostico = async (id: number) => {
-  if (!userId) return
-  if (pronosticosBloqueados) return
-
-  const actual = pronosticos[id]
-  const golesLocal = actual?.goles_local ?? ''
-  const golesVisitante = actual?.goles_visitante ?? ''
-
-  if (golesLocal === '' || golesVisitante === '') return
-
-  setGuardandoId(id)
-  setGuardadoId(null)
-
-  await supabase.from('pronosticos').upsert({
-    usuario_id: userId,
-    partido_id: id,
-    goles_local: Number(golesLocal),
-    goles_visitante: Number(golesVisitante),
-  })
-
-  await cargarTodo()
-  setGuardandoId(null)
-  setGuardadoId(id)
-
-  setTimeout(() => {
-    setGuardadoId((actual) => (actual === id ? null : actual))
-  }, 1500)
-}
 
   const actualizarResultadoAdmin = (
     partidoId: number,
@@ -697,6 +704,8 @@ const guardarPronostico = async (id: number) => {
                 goles_visitante: '',
               }
 
+              const estadoActual = estadoGuardado[p.id]
+
               const partidoTieneResultado =
                 p.resultado_local !== null && p.resultado_visitante !== null
 
@@ -770,32 +779,6 @@ const guardarPronostico = async (id: number) => {
                         textAlign: 'center',
                       }}
                     />
-
-<button
-  disabled={pronosticosBloqueados || guardandoId === p.id}
-  onClick={() => guardarPronostico(p.id)}
-  style={{
-    padding: '10px 14px',
-    borderRadius: 8,
-    border: 'none',
-    background: pronosticosBloqueados
-      ? '#6b7280'
-      : guardadoId === p.id
-        ? '#16a34a'
-        : '#2563eb',
-    color: 'white',
-    cursor: pronosticosBloqueados ? 'not-allowed' : 'pointer',
-    fontWeight: 'bold',
-  }}
->
-  {guardandoId === p.id
-    ? 'Guardando...'
-    : guardadoId === p.id
-      ? 'Guardado'
-      : tienePronosticoGuardado
-        ? 'Modificar'
-        : 'Guardar'}
-</button>
                   </div>
 
                   <div style={{ marginTop: 10 }}>
@@ -805,7 +788,19 @@ const guardarPronostico = async (id: number) => {
                       : 'Sin elegir'}
                   </div>
 
-                  {tienePronosticoGuardado && (
+                  {estadoActual === 'guardando' && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        color: '#facc15',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      ⏳ Guardando...
+                    </div>
+                  )}
+
+                  {estadoActual === 'guardado' && (
                     <div
                       style={{
                         marginTop: 6,
@@ -813,9 +808,23 @@ const guardarPronostico = async (id: number) => {
                         fontWeight: 'bold',
                       }}
                     >
-                      ✅ Pronóstico guardado
+                      ✅ Guardado automáticamente
                     </div>
                   )}
+
+                  {estadoActual !== 'guardando' &&
+                    estadoActual !== 'guardado' &&
+                    tienePronosticoGuardado && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          color: '#22c55e',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        ✅ Pronóstico cargado
+                      </div>
+                    )}
 
                   <div style={{ marginTop: 6 }}>
                     <b>Resultado real:</b>{' '}
