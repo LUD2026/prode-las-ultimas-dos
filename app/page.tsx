@@ -38,6 +38,73 @@ type EstadoGuardadoMap = {
 
 const ADMIN_EMAIL = 'burrocas@gmail.com'
 
+const REGLAMENTO_TEXTO = `🏆 REGLAMENTO PRODE “LAS ÚLTIMAS DOS”
+
+🎯 Objetivo
+Adivinar los resultados de los partidos del torneo sumando la mayor cantidad de puntos posible.
+
+💰 Valor de participación
+• Inscripción: $5.000 por jugada
+
+🔴 IMPORTANTE
+• Solo participan las jugadas abonadas antes del inicio del primer partido
+• Jugadas no abonadas a tiempo no participan, aunque estén cargadas
+
+🏅 Premios
+• 🥇 1° puesto: Premio en efectivo
+• 🥈 2° puesto: Premio en efectivo
+• 🥉 3° puesto: Premio en efectivo
+• 🎁 Del 4° al 10°: Premios/regalos
+• 😅 Último puesto: Premio consuelo
+
+(Premios sujetos a cantidad de participantes)
+
+⚽ Sistema de puntuación
+• ✔️ 1 punto por acertar el resultado (gana local, empate o visitante)
+• 🔥 +1 punto extra por acertar el resultado exacto
+
+👉 Ejemplo:
+• Resultado correcto → 1 punto
+• Resultado exacto → 2 puntos
+• Sin aciertos → 0 puntos
+
+📝 Carga de pronósticos
+• Los pronósticos deben cargarse antes del inicio del primer partido del torneo
+• ❌ No se pueden modificar una vez iniciado el torneo
+• Partidos no cargados → 0 puntos
+
+👥 Jugadas por persona
+• Una misma persona puede realizar varias jugadas
+• ⚠️ Cada jugada debe tener un usuario distinto
+
+⚖️ Desempate
+En caso de empate en puntos, se definirá de la siguiente manera:
+
+1. Se tomará el primer partido de octavos de final
+2. Si persiste el empate, se tomará el primer partido de cuartos de final
+3. Luego primer partido de semifinal
+4. Y finalmente, si es necesario, la final
+
+👉 Se compararán los pronósticos de esos partidos hasta desempatar
+
+📲 Participación
+Cada jugada debe tener:
+• Usuario único
+• Teléfono de contacto
+
+🚫 Reglas generales
+• No se permite modificar pronósticos fuera de tiempo
+• La organización podrá eliminar jugadas duplicadas o sospechosas
+• Cualquier intento de trampa implica descalificación
+
+📅 Cierre del juego
+• El prode finaliza con el último partido del torneo
+• Los premios se entregarán posteriormente
+
+🔥 IMPORTANTE
+• Participar implica aceptar todas las reglas
+• La organización se reserva el derecho de ajustar detalles para mejorar la experiencia`
+
 export default function Home() {
   const [email, setEmail] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
@@ -457,38 +524,30 @@ export default function Home() {
             style={{
               background: '#111827',
               color: 'white',
-              maxWidth: 520,
+              maxWidth: 620,
               width: '100%',
               borderRadius: 14,
               padding: 24,
               border: '1px solid #374151',
               boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+              maxHeight: '85vh',
+              overflowY: 'auto',
             }}
           >
             <h2 style={{ marginTop: 0, marginBottom: 16 }}>📜 Reglamento</h2>
 
-            <div style={{ lineHeight: 1.6, color: '#e5e7eb', fontSize: 15 }}>
-              <p style={{ marginTop: 0 }}>
-                1. Cada participante debe ingresar con su cuenta para guardar sus pronósticos.
-              </p>
-              <p>
-                2. Los pronósticos podrán cargarse o modificarse únicamente hasta el inicio del primer partido del torneo.
-              </p>
-              <p>
-                3. Una vez comenzado el primer encuentro, no se podrán realizar cambios.
-              </p>
-              <p>
-                4. Sistema de puntos:
-                <br />• 1 punto por acertar ganador o empate.
-                <br />• +1 punto extra por acertar el resultado exacto.
-              </p>
-              <p>
-                5. En caso de empate en la tabla, se definirá por mayor cantidad de resultados exactos.
-              </p>
-              <p style={{ marginBottom: 0 }}>
-                6. Cada usuario participa con una sola cuenta.
-              </p>
-            </div>
+            <pre
+              style={{
+                whiteSpace: 'pre-wrap',
+                lineHeight: 1.6,
+                color: '#e5e7eb',
+                fontSize: 15,
+                fontFamily: 'inherit',
+                margin: 0,
+              }}
+            >
+              {REGLAMENTO_TEXTO}
+            </pre>
 
             <button
               onClick={cerrarReglamento}
