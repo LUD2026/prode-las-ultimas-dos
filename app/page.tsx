@@ -39,8 +39,9 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null)
   const [partidos, setPartidos] = useState<Partido[]>([])
   const [pronosticos, setPronosticos] = useState<PronosticosMap>({})
-  const [guardandoId, setGuardandoId] = useState<number | null>(null)
-  const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(null)
+const [guardandoId, setGuardandoId] = useState<number | null>(null)
+const [guardadoId, setGuardadoId] = useState<number | null>(null)
+const [guardandoResultadoId, setGuardandoResultadoId] = useState<number | null>(null)
   const [ranking, setRanking] = useState<RankingItem[]>([])
   const [cargando, setCargando] = useState(true)
 
@@ -252,28 +253,34 @@ export default function Home() {
     }))
   }
 
-  const guardarPronostico = async (id: number) => {
-    if (!userId) return
-    if (pronosticosBloqueados) return
+const guardarPronostico = async (id: number) => {
+  if (!userId) return
+  if (pronosticosBloqueados) return
 
-    const actual = pronosticos[id]
-    const golesLocal = actual?.goles_local ?? ''
-    const golesVisitante = actual?.goles_visitante ?? ''
+  const actual = pronosticos[id]
+  const golesLocal = actual?.goles_local ?? ''
+  const golesVisitante = actual?.goles_visitante ?? ''
 
-    if (golesLocal === '' || golesVisitante === '') return
+  if (golesLocal === '' || golesVisitante === '') return
 
-    setGuardandoId(id)
+  setGuardandoId(id)
+  setGuardadoId(null)
 
-    await supabase.from('pronosticos').upsert({
-      usuario_id: userId,
-      partido_id: id,
-      goles_local: Number(golesLocal),
-      goles_visitante: Number(golesVisitante),
-    })
+  await supabase.from('pronosticos').upsert({
+    usuario_id: userId,
+    partido_id: id,
+    goles_local: Number(golesLocal),
+    goles_visitante: Number(golesVisitante),
+  })
 
-    await cargarTodo()
-    setGuardandoId(null)
-  }
+  await cargarTodo()
+  setGuardandoId(null)
+  setGuardadoId(id)
+
+  setTimeout(() => {
+    setGuardadoId((actual) => (actual === id ? null : actual))
+  }, 1500)
+}
 
   const actualizarResultadoAdmin = (
     partidoId: number,
@@ -764,25 +771,31 @@ export default function Home() {
                       }}
                     />
 
-                    <button
-                      disabled={pronosticosBloqueados || guardandoId === p.id}
-                      onClick={() => guardarPronostico(p.id)}
-                      style={{
-                        padding: '10px 14px',
-                        borderRadius: 8,
-                        border: 'none',
-                        background: pronosticosBloqueados ? '#6b7280' : '#2563eb',
-                        color: 'white',
-                        cursor: pronosticosBloqueados ? 'not-allowed' : 'pointer',
-                        fontWeight: 'bold',
-                      }}
-                    >
-                      {guardandoId === p.id
-                        ? 'Guardando...'
-                        : tienePronosticoGuardado
-                          ? 'Modificar'
-                          : 'Guardar'}
-                    </button>
+<button
+  disabled={pronosticosBloqueados || guardandoId === p.id}
+  onClick={() => guardarPronostico(p.id)}
+  style={{
+    padding: '10px 14px',
+    borderRadius: 8,
+    border: 'none',
+    background: pronosticosBloqueados
+      ? '#6b7280'
+      : guardadoId === p.id
+        ? '#16a34a'
+        : '#2563eb',
+    color: 'white',
+    cursor: pronosticosBloqueados ? 'not-allowed' : 'pointer',
+    fontWeight: 'bold',
+  }}
+>
+  {guardandoId === p.id
+    ? 'Guardando...'
+    : guardadoId === p.id
+      ? 'Guardado'
+      : tienePronosticoGuardado
+        ? 'Modificar'
+        : 'Guardar'}
+</button>
                   </div>
 
                   <div style={{ marginTop: 10 }}>
