@@ -693,16 +693,24 @@ export default function Home() {
               const partidoTieneResultado =
                 p.resultado_local !== null && p.resultado_visitante !== null
 
+              const tienePronosticoGuardado =
+                sel.goles_local !== '' && sel.goles_visitante !== ''
+
               return (
                 <div
                   key={p.id}
                   style={{
-                    border: '1px solid #374151',
+                    border: tienePronosticoGuardado
+                      ? '2px solid #22c55e'
+                      : '1px solid #374151',
                     padding: 12,
                     marginBottom: 12,
                     borderRadius: 8,
                     background: '#1f2937',
                     color: 'white',
+                    boxShadow: tienePronosticoGuardado
+                      ? '0 0 0 1px rgba(34,197,94,0.2)'
+                      : 'none',
                   }}
                 >
                   <div style={{ fontSize: 14, marginBottom: 6 }}>
@@ -769,16 +777,32 @@ export default function Home() {
                         fontWeight: 'bold',
                       }}
                     >
-                      {guardandoId === p.id ? 'Guardando...' : 'Guardar'}
+                      {guardandoId === p.id
+                        ? 'Guardando...'
+                        : tienePronosticoGuardado
+                          ? 'Modificar'
+                          : 'Guardar'}
                     </button>
                   </div>
 
                   <div style={{ marginTop: 10 }}>
                     <b>Tu pronóstico:</b>{' '}
-                    {sel.goles_local !== '' && sel.goles_visitante !== ''
+                    {tienePronosticoGuardado
                       ? `${p.equipo_local} ${sel.goles_local} - ${sel.goles_visitante} ${p.equipo_visitante}`
                       : 'Sin elegir'}
                   </div>
+
+                  {tienePronosticoGuardado && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        color: '#22c55e',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      ✅ Pronóstico guardado
+                    </div>
+                  )}
 
                   <div style={{ marginTop: 6 }}>
                     <b>Resultado real:</b>{' '}
