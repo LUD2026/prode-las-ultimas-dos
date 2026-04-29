@@ -14,6 +14,22 @@ type Partido = {
   resultado_visitante: number | null
 }
 
+type Jugada = {
+  id: number
+  usuario_id: string
+  partido_id: number
+  goles_local: number
+  goles_visitante: number
+  nombre: string | null
+  username: string | null
+  email: string | null
+  equipo_local: string
+  equipo_visitante: string
+  fecha: string
+  grupo: string | null
+  fase: string | null
+}
+
 type PronosticosMap = {
   [partidoId: number]: {
     goles_local: string
@@ -73,6 +89,11 @@ Adivinar los resultados de los partidos del torneo sumando la mayor cantidad de 
 • ❌ No se pueden modificar una vez iniciado el torneo
 • Partidos no cargados → 0 puntos
 
+🔍 Transparencia de las jugadas
+• Una vez iniciado el torneo y cerrado el período de carga, todas las jugadas quedarán visibles dentro de la plataforma
+• Cada participante podrá consultar los pronósticos cargados por los demás usuarios
+• Esto garantiza transparencia y evita cualquier modificación fuera de tiempo
+
 👥 Jugadas por persona
 • Una misma persona puede realizar varias jugadas
 • ⚠️ Cada jugada debe tener un usuario distinto
@@ -115,6 +136,10 @@ export default function Home() {
   const [ranking, setRanking] = useState<RankingItem[]>([])
   const [cargando, setCargando] = useState(true)
 
+  const [jugadas, setJugadas] = useState<Jugada[]>([])
+  const [partidoFiltro, setPartidoFiltro] = useState('todos')
+  const [busquedaUsuario, setBusquedaUsuario] = useState('')
+
   const [nombreUsuario, setNombreUsuario] = useState('')
   const [telefono, setTelefono] = useState('')
   const [necesitaCompletarPerfil, setNecesitaCompletarPerfil] = useState(false)
@@ -137,6 +162,33 @@ export default function Home() {
     if (!primerPartido) return false
     return new Date().getTime() >= new Date(primerPartido.fecha).getTime()
   }, [primerPartido])
+
+  const partidosUnicosJugadas = useMemo(() => {
+    return Array.from(
+      new Map(
+        jugadas.map((j) => [
+          j.partido_id,
+          {
+            id: j.partido_id,
+            nombre: `${j.equipo_local} vs ${j.equipo_visitante}`,
+          },
+        ])
+      ).values()
+    )
+  }, [jugadas])
+
+  const jugadasFiltradas = useMemo(() => {
+    return jugadas.filter((j) => {
+      const coincidePartido =
+        partidoFiltro === 'todos' || String(j.partido_id) === partidoFiltro
+
+      const textoUsuario = `${j.nombre || ''} ${j.username || ''} ${j.email || ''}`.toLowerCase()
+
+      const coincideUsuario = textoUsuario.includes(busquedaUsuario.toLowerCase())
+
+      return coincidePartido && coincideUsuario
+    })
+  }, [jugadas, partidoFiltro, busquedaUsuario])
 
   const obtenerResultado = (local: number, visitante: number) => {
     if (local > visitante) return 'local'
@@ -227,6 +279,15 @@ export default function Home() {
     if (partidosDB) {
       partidosData = partidosDB
       setPartidos(partidosDB)
+    }
+
+    const { data: jugadasDB } = await supabase
+      .from('pronosticos_completos')
+      .select('*')
+      .order('fecha', { ascending: true })
+
+    if (jugadasDB) {
+      setJugadas(jugadasDB)
     }
 
     const { data: usuarios } = await supabase.from('usuarios').select('*')
@@ -848,25 +909,13 @@ export default function Home() {
                   </div>
 
                   {estadoActual === 'guardando' && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        color: '#facc15',
-                        fontWeight: 'bold',
-                      }}
-                    >
+                    <div style={{ marginTop: 6, color: '#facc15', fontWeight: 'bold' }}>
                       ⏳ Guardando...
                     </div>
                   )}
 
                   {estadoActual === 'guardado' && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        color: '#22c55e',
-                        fontWeight: 'bold',
-                      }}
-                    >
+                    <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>
                       ✅ Guardado automáticamente
                     </div>
                   )}
@@ -874,13 +923,7 @@ export default function Home() {
                   {estadoActual !== 'guardando' &&
                     estadoActual !== 'guardado' &&
                     tienePronosticoGuardado && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          color: '#22c55e',
-                          fontWeight: 'bold',
-                        }}
-                      >
+                      <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>
                         ✅ Pronóstico cargado
                       </div>
                     )}
@@ -924,13 +967,7 @@ export default function Home() {
                               </div>
 
                               {acertoExacto && (
-                                <div
-                                  style={{
-                                    marginTop: 4,
-                                    fontWeight: 'bold',
-                                    color: '#facc15',
-                                  }}
-                                >
+                                <div style={{ marginTop: 4, fontWeight: 'bold', color: '#facc15' }}>
                                   ⭐ También acertaste el marcador exacto
                                 </div>
                               )}
@@ -946,15 +983,7 @@ export default function Home() {
                     <div style={{ marginTop: 14 }}>
                       <b>Admin: cargar resultado real</b>
 
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          flexWrap: 'wrap',
-                          marginTop: 8,
-                        }}
-                      >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                         <input
                           type="number"
                           min="0"
@@ -1017,6 +1046,116 @@ export default function Home() {
               )
             })
           )}
+
+          <h2 style={{ marginTop: 30 }}>🔍 Jugadas cargadas</h2>
+
+          <div
+            style={{
+              background: '#1f2937',
+              border: '1px solid #374151',
+              borderRadius: 10,
+              padding: 14,
+              marginBottom: 20,
+            }}
+          >
+            {!pronosticosBloqueados ? (
+              <div
+                style={{
+                  background: '#78350f',
+                  color: '#fde68a',
+                  padding: 12,
+                  borderRadius: 8,
+                  fontWeight: 'bold',
+                }}
+              >
+                Las jugadas todavía están ocultas. Se podrán ver cuando cierre la carga de pronósticos.
+              </div>
+            ) : (
+              <>
+                <p style={{ color: '#cbd5e1', marginTop: 0 }}>
+                  Para garantizar transparencia, todas las jugadas quedan visibles una vez cerrado el período de carga.
+                </p>
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                  <select
+                    value={partidoFiltro}
+                    onChange={(e) => setPartidoFiltro(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 220,
+                      padding: 12,
+                      borderRadius: 8,
+                      border: '1px solid #475569',
+                      background: '#111827',
+                      color: 'white',
+                    }}
+                  >
+                    <option value="todos">Todos los partidos</option>
+
+                    {partidosUnicosJugadas.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="text"
+                    placeholder="Buscar usuario..."
+                    value={busquedaUsuario}
+                    onChange={(e) => setBusquedaUsuario(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 220,
+                      padding: 12,
+                      borderRadius: 8,
+                      border: '1px solid #475569',
+                      background: '#111827',
+                      color: 'white',
+                    }}
+                  />
+                </div>
+
+                {jugadasFiltradas.length === 0 ? (
+                  <p style={{ color: '#cbd5e1' }}>No hay jugadas para mostrar.</p>
+                ) : (
+                  jugadasFiltradas.map((j) => (
+                    <div
+                      key={j.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        padding: 12,
+                        marginBottom: 8,
+                        borderRadius: 8,
+                        background: '#111827',
+                        border: '1px solid #374151',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 'bold' }}>
+                          {j.username || j.nombre || j.email}
+                        </div>
+
+                        <div style={{ color: '#cbd5e1', fontSize: 14 }}>
+                          {j.equipo_local} vs {j.equipo_visitante}
+                        </div>
+
+                        <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                          {formatearFecha(j.fecha)}
+                        </div>
+                      </div>
+
+                      <div style={{ fontWeight: 'bold', fontSize: 20, whiteSpace: 'nowrap' }}>
+                        {j.goles_local} - {j.goles_visitante}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </>
+            )}
+          </div>
 
           {(() => {
             const miPos = ranking.findIndex((r) => r.email === email)
