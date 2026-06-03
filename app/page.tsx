@@ -269,7 +269,7 @@ export default function Home() {
     const { data: todosPronos } = await supabase.from('pronosticos').select('*')
 
     if (usuarios && todosPronos && partidosData) {
-      const rank = usuarios.map((u: any) => {
+      const rank = usuarios.filter((u: any) => u.aprobado).map((u: any) => {
         const pronosUser = todosPronos.filter((p: any) => p.usuario_id === u.id)
         let puntos = 0
         let aciertosExactos = 0
