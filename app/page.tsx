@@ -60,7 +60,7 @@ const REGLAMENTO_TEXTO = `🏆 REGLAMENTO PRODE “LAS ÚLTIMAS DOS”
 Adivinar los resultados de los partidos del torneo sumando la mayor cantidad de puntos posible.
 
 💰 Valor de participación
-• Inscripción: $5.000 por jugada
+• Inscripción: $6.000 por jugada
 
 🔴 IMPORTANTE
 • Solo participan las jugadas abonadas antes del inicio del primer partido
@@ -76,51 +76,8 @@ Adivinar los resultados de los partidos del torneo sumando la mayor cantidad de 
 (Premios sujetos a cantidad de participantes)
 
 ⚽ Sistema de puntuación
-• ✔️ 1 punto por acertar el resultado (gana local, empate o visitante)
+• ✔️ 1 punto por acertar el resultado
 • 🔥 +1 punto extra por acertar el resultado exacto
-
-👉 Ejemplo:
-• Resultado correcto → 1 punto
-• Resultado exacto → 2 puntos
-• Sin aciertos → 0 puntos
-
-📝 Carga de pronósticos
-• Los pronósticos deben cargarse antes del inicio del primer partido del torneo
-• ❌ No se pueden modificar una vez iniciado el torneo
-• Partidos no cargados → 0 puntos
-
-🔍 Transparencia de las jugadas
-• Una vez iniciado el torneo y cerrado el período de carga, todas las jugadas quedarán visibles dentro de la plataforma
-• Cada participante podrá consultar los pronósticos cargados por los demás usuarios
-• Esto garantiza transparencia y evita cualquier modificación fuera de tiempo
-
-👥 Jugadas por persona
-• Una misma persona puede realizar varias jugadas
-• ⚠️ Cada jugada debe tener un usuario distinto
-
-⚖️ Desempate
-En caso de empate en puntos, se definirá de la siguiente manera:
-
-1. Se tomará el primer partido de octavos de final
-2. Si persiste el empate, se tomará el primer partido de cuartos de final
-3. Luego primer partido de semifinal
-4. Y finalmente, si es necesario, la final
-
-👉 Se compararán los pronósticos de esos partidos hasta desempatar
-
-📲 Participación
-Cada jugada debe tener:
-• Usuario único
-• Teléfono de contacto
-
-🚫 Reglas generales
-• No se permite modificar pronósticos fuera de tiempo
-• La organización podrá eliminar jugadas duplicadas o sospechosas
-• Cualquier intento de trampa implica descalificación
-
-📅 Cierre del juego
-• El prode finaliza con el último partido del torneo
-• Los premios se entregarán posteriormente
 
 🔥 IMPORTANTE
 • Participar implica aceptar todas las reglas
