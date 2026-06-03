@@ -665,7 +665,19 @@ export default function Home() {
             )
           })()}
 
-          <h2 style={{ marginTop: 30 }}>🏆 Ranking</h2>
+          {(() => {
+  const francotirador = [...ranking].sort((a, b) => b.aciertosExactos - a.aciertosExactos)[0]
+  if (!francotirador || francotirador.aciertosExactos === 0) return null
+  return (
+    <div style={{ background: '#1e3a5f', border: '2px solid #3b82f6', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+      <div style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 4 }}>🎯 Francotirador</div>
+      <div style={{ color: '#93c5fd', fontSize: 14 }}>El que más resultados exactos acertó</div>
+      <div style={{ fontWeight: 'bold', fontSize: 18, marginTop: 8 }}>
+        {francotirador.nombre} — {francotirador.aciertosExactos} exactos ⭐
+      </div>
+    </div>
+  )
+})()}
           <div style={{ marginTop: 10 }}>
             {ranking.map((r, i) => {
   const soyYo = r.email === email
