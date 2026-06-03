@@ -49,7 +49,7 @@ type RankingItem = {
 }
 
 type EstadoGuardadoMap = {
-  [partidoId: number]: 'guardando' | 'guardado' | undefined
+  [partidoId: number]: 'guardando' | 'guardado' | 'error' | undefined
 }
 
 const ADMIN_EMAIL = 'burrocas@gmail.com'
@@ -396,17 +396,38 @@ export default function Home() {
         [partidoId]: 'guardando',
       }))
 
-      await supabase.from('pronosticos').upsert({
-        usuario_id: userId,
-        partido_id: partidoId,
-        goles_local: Number(actualizado.goles_local),
-        goles_visitante: Number(actualizado.goles_visitante),
-      })
+      const { error } = await supabase
+        .from('pronosticos')
+        .upsert(
+          {
+            usuario_id: userId,
+            partido_id: partidoId,
+            goles_local: Number(actualizado.goles_local),
+            goles_visitante: Number(actualizado.goles_visitante),
+          },
+          {
+            onConflict: 'usuario_id,partido_id',
+          }
+        )
+
+      if (error) {
+        console.error('Error guardando pronóstico:', error)
+
+        setEstadoGuardado((prev) => ({
+          ...prev,
+          [partidoId]: 'error',
+        }))
+
+        alert('No se pudo guardar el pronóstico. Revisá la configuración.')
+        return
+      }
 
       setEstadoGuardado((prev) => ({
         ...prev,
         [partidoId]: 'guardado',
       }))
+
+      await cargarTodo()
 
       setTimeout(() => {
         setEstadoGuardado((prev) => ({
@@ -844,9 +865,6 @@ export default function Home() {
                     borderRadius: 8,
                     background: '#1f2937',
                     color: 'white',
-                    boxShadow: tienePronosticoGuardado
-                      ? '0 0 0 1px rgba(34,197,94,0.2)'
-                      : 'none',
                   }}
                 >
                   <div style={{ fontSize: 14, marginBottom: 6 }}>
@@ -920,8 +938,15 @@ export default function Home() {
                     </div>
                   )}
 
+                  {estadoActual === 'error' && (
+                    <div style={{ marginTop: 6, color: '#ef4444', fontWeight: 'bold' }}>
+                      ❌ Error al guardar
+                    </div>
+                  )}
+
                   {estadoActual !== 'guardando' &&
                     estadoActual !== 'guardado' &&
+                    estadoActual !== 'error' &&
                     tienePronosticoGuardado && (
                       <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>
                         ✅ Pronóstico cargado
@@ -934,48 +959,6 @@ export default function Home() {
                       ? `${p.equipo_local} ${p.resultado_local} - ${p.resultado_visitante} ${p.equipo_visitante}`
                       : 'Sin cargar'}
                   </div>
-
-                  {partidoTieneResultado &&
-                    sel.goles_local !== '' &&
-                    sel.goles_visitante !== '' && (
-                      <div style={{ marginTop: 8 }}>
-                        {(() => {
-                          const gl = Number(sel.goles_local)
-                          const gv = Number(sel.goles_visitante)
-
-                          const acertoResultado =
-                            obtenerResultado(gl, gv) ===
-                            obtenerResultado(
-                              p.resultado_local as number,
-                              p.resultado_visitante as number
-                            )
-
-                          const acertoExacto =
-                            gl === p.resultado_local && gv === p.resultado_visitante
-
-                          return (
-                            <>
-                              <div
-                                style={{
-                                  fontWeight: 'bold',
-                                  color: acertoResultado ? '#22c55e' : '#ef4444',
-                                }}
-                              >
-                                {acertoResultado
-                                  ? '✅ Acertaste el resultado'
-                                  : '❌ No acertaste el resultado'}
-                              </div>
-
-                              {acertoExacto && (
-                                <div style={{ marginTop: 4, fontWeight: 'bold', color: '#facc15' }}>
-                                  ⭐ También acertaste el marcador exacto
-                                </div>
-                              )}
-                            </>
-                          )
-                        })()}
-                      </div>
-                    )}
 
                   {pronosticosBloqueados && <div style={{ marginTop: 8 }}>🔒 Cerrado</div>}
 
