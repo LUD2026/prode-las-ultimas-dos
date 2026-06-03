@@ -45,7 +45,9 @@ type RankingItem = {
   aciertosResultado: number
   pronosticados: number
   username?: string | null
-  telefono?: string | null
+telefono?: string | null
+golesTotal?: number
+puntosArgentina?: number
   aprobado?: boolean
 }
 
@@ -118,6 +120,7 @@ export default function Home() {
 
   // Admin: lista de usuarios
   const [usuariosAdmin, setUsuariosAdmin] = useState<Usuario[]>([])
+  const PARTIDOS_ARGENTINA = [130, 152, 183]
   const [guardandoAprobacion, setGuardandoAprobacion] = useState<string | null>(null)
   const [vistaAdmin, setVistaAdmin] = useState<'partidos' | 'usuarios'>('partidos')
 
@@ -266,7 +269,30 @@ export default function Home() {
     if (jugadasDB) setJugadas(jugadasDB)
 
     const { data: usuarios } = await supabase.from('usuarios').select('*')
-    const { data: todosPronos } = await supabase.from('pronosticos').select('*')
+const { data: todosPronos } = await supabase.from('pronosticos').select('*')
+
+// Goles totales por usuario
+const golesPorUsuario: { [key: string]: number } = {}
+if (todosPronos) {
+  todosPronos.forEach((p: any) => {
+    if (!golesPorUsuario[p.usuario_id]) golesPorUsuario[p.usuario_id] = 0
+    golesPorUsuario[p.usuario_id] += (p.goles_local || 0) + (p.goles_visitante || 0)
+  })
+}
+
+// Puntos Argentina por usuario
+const puntosArgentinaPorUsuario: { [key: string]: number } = {}
+if (todosPronos && partidosData) {
+  todosPronos.filter((p: any) => PARTIDOS_ARGENTINA.includes(p.partido_id)).forEach((p: any) => {
+    const partido = partidosData.find((pp) => pp.id === p.partido_id)
+    if (!partido || partido.resultado_local === null || partido.resultado_visitante === null) return
+    if (!puntosArgentinaPorUsuario[p.usuario_id]) puntosArgentinaPorUsuario[p.usuario_id] = 0
+    const resReal = obtenerResultado(partido.resultado_local, partido.resultado_visitante)
+    const resPron = obtenerResultado(p.goles_local, p.goles_visitante)
+    if (resReal === resPron) puntosArgentinaPorUsuario[p.usuario_id] += 1
+    if (partido.resultado_local === p.goles_local && partido.resultado_visitante === p.goles_visitante) puntosArgentinaPorUsuario[p.usuario_id] += 1
+  })
+}
 
     if (usuarios && todosPronos && partidosData) {
       const rank = usuarios.filter((u: any) => u.aprobado).map((u: any) => {
@@ -293,6 +319,8 @@ export default function Home() {
           aciertosExactos,
           aciertosResultado,
           pronosticados: pronosUser.length,
+          golesTotal: golesPorUsuario[u.id] || 0,
+puntosArgentina: puntosArgentinaPorUsuario[u.id] || 0,
           username: u.username ?? null,
           telefono: u.telefono ?? null,
           aprobado: u.aprobado ?? false,
@@ -680,6 +708,33 @@ export default function Home() {
 })()}
           <div style={{ marginTop: 10 }}>
             {ranking.map((r, i) => {
+              {(() => {
+  const rey = [...ranking].sort((a, b) => (b.puntosArgentina || 0) - (a.puntosArgentina || 0))[0]
+  if (!rey || !rey.puntosArgentina) return null
+  return (
+    <div style={{ background: '#3b1f00', border: '2px solid #f59e0b', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+      <div style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 4 }}>🇦🇷 Rey de la Scaloneta</div>
+      <div style={{ color: '#fcd34d', fontSize: 14 }}>El que más puntos sumó en los partidos de Argentina</div>
+      <div style={{ fontWeight: 'bold', fontSize: 18, marginTop: 8 }}>
+        {rey.nombre} — {rey.puntosArgentina} pts 👑
+      </div>
+    </div>
+  )
+})()}
+
+{(() => {
+  const goleador = [...ranking].sort((a, b) => (b.golesTotal || 0) - (a.golesTotal || 0))[0]
+  if (!goleador) return null
+  return (
+    <div style={{ background: '#1a3a1a', border: '2px solid #16a34a', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+      <div style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 4 }}>🚀 El Goleador</div>
+      <div style={{ color: '#86efac', fontSize: 14 }}>El que más goles pronosticó en total</div>
+      <div style={{ fontWeight: 'bold', fontSize: 18, marginTop: 8 }}>
+        {goleador.nombre} — {goleador.golesTotal} goles pronosticados 🥅
+      </div>
+    </div>
+  )
+})()}
   const soyYo = r.email === email
   const esUltimo = i === ranking.length - 1
 
