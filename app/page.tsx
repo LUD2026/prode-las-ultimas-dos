@@ -46,15 +46,25 @@ type RankingItem = {
   pronosticados: number
   username?: string | null
   telefono?: string | null
+  aprobado?: boolean
 }
 
 type EstadoGuardadoMap = {
   [partidoId: number]: 'guardando' | 'guardado' | 'error' | undefined
 }
 
+type Usuario = {
+  id: string
+  email: string
+  nombre: string | null
+  username: string | null
+  telefono: string | null
+  aprobado: boolean
+}
+
 const ADMIN_EMAIL = 'burrocas@gmail.com'
 
-const REGLAMENTO_TEXTO = `🏆 REGLAMENTO PRODE “LAS ÚLTIMAS DOS”
+const REGLAMENTO_TEXTO = `🏆 REGLAMENTO PRODE "LAS ÚLTIMAS DOS"
 
 🎯 Objetivo
 Adivinar los resultados de los partidos del torneo sumando la mayor cantidad de puntos posible.
@@ -86,6 +96,7 @@ Adivinar los resultados de los partidos del torneo sumando la mayor cantidad de 
 export default function Home() {
   const [email, setEmail] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  const [aprobado, setAprobado] = useState<boolean | null>(null)
   const [partidos, setPartidos] = useState<Partido[]>([])
   const [pronosticos, setPronosticos] = useState<PronosticosMap>({})
   const [estadoGuardado, setEstadoGuardado] = useState<EstadoGuardadoMap>({})
@@ -105,11 +116,15 @@ export default function Home() {
 
   const [mostrarReglamento, setMostrarReglamento] = useState(false)
 
+  // Admin: lista de usuarios
+  const [usuariosAdmin, setUsuariosAdmin] = useState<Usuario[]>([])
+  const [guardandoAprobacion, setGuardandoAprobacion] = useState<string | null>(null)
+  const [vistaAdmin, setVistaAdmin] = useState<'partidos' | 'usuarios'>('partidos')
+
   const esAdmin = email === ADMIN_EMAIL
 
   const primerPartido = useMemo(() => {
     if (!partidos.length) return null
-
     return [...partidos].sort(
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime()
     )[0]
@@ -125,10 +140,7 @@ export default function Home() {
       new Map(
         jugadas.map((j) => [
           j.partido_id,
-          {
-            id: j.partido_id,
-            nombre: `${j.equipo_local} vs ${j.equipo_visitante}`,
-          },
+          { id: j.partido_id, nombre: `${j.equipo_local} vs ${j.equipo_visitante}` },
         ])
       ).values()
     )
@@ -138,11 +150,8 @@ export default function Home() {
     return jugadas.filter((j) => {
       const coincidePartido =
         partidoFiltro === 'todos' || String(j.partido_id) === partidoFiltro
-
       const textoUsuario = `${j.nombre || ''} ${j.username || ''} ${j.email || ''}`.toLowerCase()
-
       const coincideUsuario = textoUsuario.includes(busquedaUsuario.toLowerCase())
-
       return coincidePartido && coincideUsuario
     })
   }, [jugadas, partidoFiltro, busquedaUsuario])
@@ -173,21 +182,27 @@ export default function Home() {
 
       const { data: usuarioDB } = await supabase
         .from('usuarios')
-        .select('username, telefono, nombre')
+        .select('username, telefono, nombre, aprobado')
         .eq('id', user.id)
         .single()
 
       const usernameActual = usuarioDB?.username ?? ''
       const telefonoActual = usuarioDB?.telefono ?? ''
+      const aprobadoActual = usuarioDB?.aprobado ?? false
 
       setNombreUsuario(usernameActual)
       setTelefono(telefonoActual)
+      setAprobado(aprobadoActual)
+
+      // Admin siempre aprobado
+      if (user.email === ADMIN_EMAIL) {
+        setAprobado(true)
+      }
 
       if (!usernameActual || !telefonoActual) {
         setNecesitaCompletarPerfil(true)
       } else {
         setNecesitaCompletarPerfil(false)
-
         if (typeof window !== 'undefined') {
           const yaVioReglamento = localStorage.getItem('reglamentoVisto')
           if (!yaVioReglamento) {
@@ -205,21 +220,26 @@ export default function Home() {
         const mapa: PronosticosMap = {}
         pronos.forEach((p: any) => {
           mapa[p.partido_id] = {
-            goles_local:
-              p.goles_local !== null && p.goles_local !== undefined
-                ? String(p.goles_local)
-                : '',
-            goles_visitante:
-              p.goles_visitante !== null && p.goles_visitante !== undefined
-                ? String(p.goles_visitante)
-                : '',
+            goles_local: p.goles_local !== null ? String(p.goles_local) : '',
+            goles_visitante: p.goles_visitante !== null ? String(p.goles_visitante) : '',
           }
         })
         setPronosticos(mapa)
       }
+
+      // Cargar usuarios para admin
+      if (user.email === ADMIN_EMAIL) {
+        const { data: todosUsuarios } = await supabase
+          .from('usuarios')
+          .select('id, email, nombre, username, telefono, aprobado')
+          .order('created_at', { ascending: false })
+        if (todosUsuarios) setUsuariosAdmin(todosUsuarios)
+      }
+
     } else {
       setEmail(null)
       setUserId(null)
+      setAprobado(null)
       setPronosticos({})
       setNombreUsuario('')
       setTelefono('')
@@ -243,9 +263,7 @@ export default function Home() {
       .select('*')
       .order('fecha', { ascending: true })
 
-    if (jugadasDB) {
-      setJugadas(jugadasDB)
-    }
+    if (jugadasDB) setJugadas(jugadasDB)
 
     const { data: usuarios } = await supabase.from('usuarios').select('*')
     const { data: todosPronos } = await supabase.from('pronosticos').select('*')
@@ -253,46 +271,19 @@ export default function Home() {
     if (usuarios && todosPronos && partidosData) {
       const rank = usuarios.map((u: any) => {
         const pronosUser = todosPronos.filter((p: any) => p.usuario_id === u.id)
-
         let puntos = 0
         let aciertosExactos = 0
         let aciertosResultado = 0
 
         pronosUser.forEach((p: any) => {
           const partido = partidosData.find((pp) => pp.id === p.partido_id)
+          if (!partido || partido.resultado_local === null || partido.resultado_visitante === null || p.goles_local === null || p.goles_visitante === null) return
 
-          if (
-            !partido ||
-            partido.resultado_local === null ||
-            partido.resultado_visitante === null ||
-            p.goles_local === null ||
-            p.goles_visitante === null
-          ) {
-            return
-          }
+          const resultadoReal = obtenerResultado(partido.resultado_local, partido.resultado_visitante)
+          const resultadoPronosticado = obtenerResultado(p.goles_local, p.goles_visitante)
 
-          const resultadoReal = obtenerResultado(
-            partido.resultado_local,
-            partido.resultado_visitante
-          )
-
-          const resultadoPronosticado = obtenerResultado(
-            p.goles_local,
-            p.goles_visitante
-          )
-
-          if (resultadoReal === resultadoPronosticado) {
-            puntos += 1
-            aciertosResultado += 1
-          }
-
-          if (
-            partido.resultado_local === p.goles_local &&
-            partido.resultado_visitante === p.goles_visitante
-          ) {
-            puntos += 1
-            aciertosExactos += 1
-          }
+          if (resultadoReal === resultadoPronosticado) { puntos += 1; aciertosResultado += 1 }
+          if (partido.resultado_local === p.goles_local && partido.resultado_visitante === p.goles_visitante) { puntos += 1; aciertosExactos += 1 }
         })
 
         return {
@@ -304,6 +295,7 @@ export default function Home() {
           pronosticados: pronosUser.length,
           username: u.username ?? null,
           telefono: u.telefono ?? null,
+          aprobado: u.aprobado ?? false,
         }
       })
 
@@ -319,9 +311,20 @@ export default function Home() {
     setCargando(false)
   }
 
-  useEffect(() => {
-    cargarTodo()
-  }, [])
+  useEffect(() => { cargarTodo() }, [])
+
+  const toggleAprobacion = async (usuarioId: string, estadoActual: boolean) => {
+    setGuardandoAprobacion(usuarioId)
+    await supabase
+      .from('usuarios')
+      .update({ aprobado: !estadoActual })
+      .eq('id', usuarioId)
+
+    setUsuariosAdmin((prev) =>
+      prev.map((u) => u.id === usuarioId ? { ...u, aprobado: !estadoActual } : u)
+    )
+    setGuardandoAprobacion(null)
+  }
 
   const actualizarPronostico = async (
     partidoId: number,
@@ -332,456 +335,238 @@ export default function Home() {
     if (pronosticosBloqueados) return
     if (valor !== '' && !/^\d+$/.test(valor)) return
 
-    const actual = pronosticos[partidoId] ?? {
-      goles_local: '',
-      goles_visitante: '',
-    }
-
-    const actualizado = {
-      ...actual,
-      [campo]: valor,
-    }
-
-    setPronosticos((prev) => ({
-      ...prev,
-      [partidoId]: actualizado,
-    }))
+    const actual = pronosticos[partidoId] ?? { goles_local: '', goles_visitante: '' }
+    const actualizado = { ...actual, [campo]: valor }
+    setPronosticos((prev) => ({ ...prev, [partidoId]: actualizado }))
 
     if (actualizado.goles_local !== '' && actualizado.goles_visitante !== '') {
-      setEstadoGuardado((prev) => ({
-        ...prev,
-        [partidoId]: 'guardando',
-      }))
+      setEstadoGuardado((prev) => ({ ...prev, [partidoId]: 'guardando' }))
 
       const { error } = await supabase
         .from('pronosticos')
         .upsert(
-          {
-            usuario_id: userId,
-            partido_id: partidoId,
-            goles_local: Number(actualizado.goles_local),
-            goles_visitante: Number(actualizado.goles_visitante),
-          },
-          {
-            onConflict: 'usuario_id,partido_id',
-          }
+          { usuario_id: userId, partido_id: partidoId, goles_local: Number(actualizado.goles_local), goles_visitante: Number(actualizado.goles_visitante) },
+          { onConflict: 'usuario_id,partido_id' }
         )
 
       if (error) {
-        console.error('Error guardando pronóstico:', error)
-
-        setEstadoGuardado((prev) => ({
-          ...prev,
-          [partidoId]: 'error',
-        }))
-
-        alert('No se pudo guardar el pronóstico. Revisá la configuración.')
+        setEstadoGuardado((prev) => ({ ...prev, [partidoId]: 'error' }))
+        alert('No se pudo guardar el pronóstico.')
         return
       }
 
-      setEstadoGuardado((prev) => ({
-        ...prev,
-        [partidoId]: 'guardado',
-      }))
-
+      setEstadoGuardado((prev) => ({ ...prev, [partidoId]: 'guardado' }))
       await cargarTodo()
-
       setTimeout(() => {
-        setEstadoGuardado((prev) => ({
-          ...prev,
-          [partidoId]: undefined,
-        }))
+        setEstadoGuardado((prev) => ({ ...prev, [partidoId]: undefined }))
       }, 2000)
     }
   }
 
-  const actualizarResultadoAdmin = (
-    partidoId: number,
-    campo: 'resultado_local' | 'resultado_visitante',
-    valor: string
-  ) => {
+  const actualizarResultadoAdmin = (partidoId: number, campo: 'resultado_local' | 'resultado_visitante', valor: string) => {
     if (valor !== '' && !/^\d+$/.test(valor)) return
-
-    setPartidos((prev) =>
-      prev.map((p) =>
-        p.id === partidoId
-          ? {
-              ...p,
-              [campo]: valor === '' ? null : Number(valor),
-            }
-          : p
-      )
-    )
+    setPartidos((prev) => prev.map((p) => p.id === partidoId ? { ...p, [campo]: valor === '' ? null : Number(valor) } : p))
   }
 
   const guardarResultado = async (id: number) => {
     if (!esAdmin) return
-
     const partido = partidos.find((p) => p.id === id)
-    if (!partido) return
-    if (partido.resultado_local === null || partido.resultado_visitante === null) return
-
+    if (!partido || partido.resultado_local === null || partido.resultado_visitante === null) return
     setGuardandoResultadoId(id)
-
-    await supabase
-      .from('partidos')
-      .update({
-        resultado_local: partido.resultado_local,
-        resultado_visitante: partido.resultado_visitante,
-      })
-      .eq('id', id)
-
+    await supabase.from('partidos').update({ resultado_local: partido.resultado_local, resultado_visitante: partido.resultado_visitante }).eq('id', id)
     await cargarTodo()
     setGuardandoResultadoId(null)
   }
 
   const guardarPerfil = async () => {
     if (!userId) return
-
     setErrorPerfil('')
-
     const usernameLimpio = nombreUsuario.trim()
     const telefonoLimpio = telefono.trim()
 
-    if (!usernameLimpio) {
-      setErrorPerfil('Ingresá un nombre de usuario')
-      return
-    }
-
-    if (!telefonoLimpio) {
-      setErrorPerfil('Ingresá un celular')
-      return
-    }
-
-    if (usernameLimpio.length < 3) {
-      setErrorPerfil('El usuario debe tener al menos 3 caracteres')
-      return
-    }
-
-    const usernameValido = /^[a-zA-Z0-9_]+$/.test(usernameLimpio)
-    if (!usernameValido) {
-      setErrorPerfil('El usuario solo puede tener letras, números y guión bajo')
-      return
-    }
-
-    const telefonoValido = /^[0-9]{8,15}$/.test(telefonoLimpio)
-    if (!telefonoValido) {
-      setErrorPerfil('Ingresá un celular válido, solo números')
-      return
-    }
+    if (!usernameLimpio) { setErrorPerfil('Ingresá un nombre de usuario'); return }
+    if (!telefonoLimpio) { setErrorPerfil('Ingresá un celular'); return }
+    if (usernameLimpio.length < 3) { setErrorPerfil('El usuario debe tener al menos 3 caracteres'); return }
+    if (!/^[a-zA-Z0-9_]+$/.test(usernameLimpio)) { setErrorPerfil('El usuario solo puede tener letras, números y guión bajo'); return }
+    if (!/^[0-9]{8,15}$/.test(telefonoLimpio)) { setErrorPerfil('Ingresá un celular válido, solo números'); return }
 
     setGuardandoPerfil(true)
-
     const usernameLower = usernameLimpio.toLowerCase()
 
-    const { data: usuarioExistente, error: errorBusqueda } = await supabase
-      .from('usuarios')
-      .select('id')
-      .eq('username_lower', usernameLower)
-      .neq('id', userId)
+    const { data: usuarioExistente } = await supabase.from('usuarios').select('id').eq('username_lower', usernameLower).neq('id', userId)
+    if (usuarioExistente && usuarioExistente.length > 0) { setErrorPerfil('Ese nombre de usuario ya está en uso'); setGuardandoPerfil(false); return }
 
-    if (errorBusqueda) {
-      setErrorPerfil('Error al validar el usuario')
-      setGuardandoPerfil(false)
-      return
-    }
-
-    if (usuarioExistente && usuarioExistente.length > 0) {
-      setErrorPerfil('Ese nombre de usuario ya está en uso')
-      setGuardandoPerfil(false)
-      return
-    }
-
-    const { error: errorGuardar } = await supabase
-      .from('usuarios')
-      .update({
-        username: usernameLimpio,
-        username_lower: usernameLower,
-        telefono: telefonoLimpio,
-      })
-      .eq('id', userId)
-
-    if (errorGuardar) {
-      setErrorPerfil('No se pudo guardar el perfil')
-      setGuardandoPerfil(false)
-      return
-    }
+    const { error: errorGuardar } = await supabase.from('usuarios').update({ username: usernameLimpio, username_lower: usernameLower, telefono: telefonoLimpio }).eq('id', userId)
+    if (errorGuardar) { setErrorPerfil('No se pudo guardar el perfil'); setGuardandoPerfil(false); return }
 
     setNecesitaCompletarPerfil(false)
     setGuardandoPerfil(false)
 
     if (typeof window !== 'undefined') {
       const yaVioReglamento = localStorage.getItem('reglamentoVisto')
-      if (!yaVioReglamento) {
-        setMostrarReglamento(true)
-      }
+      if (!yaVioReglamento) setMostrarReglamento(true)
     }
 
     await cargarTodo()
   }
 
   const cerrarReglamento = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('reglamentoVisto', 'true')
-    }
+    if (typeof window !== 'undefined') localStorage.setItem('reglamentoVisto', 'true')
     setMostrarReglamento(false)
   }
 
   const formatearFecha = (f: string) =>
-    new Date(f).toLocaleString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    new Date(f).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
+  // ── PANTALLA: NO LOGUEADO ─────────────────────────────────────────────────────
+  if (!email) {
+    return (
+      <div style={{ padding: 20, maxWidth: 900, margin: 'auto', color: 'white' }}>
+        <h1>Prode Las Últimas Dos ⚽</h1>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center' }}>
+          <h2 style={{ marginBottom: 10 }}>Bienvenido al Prode Las Últimas Dos ⚽</h2>
+          <p style={{ marginBottom: 20, color: '#cbd5e1' }}>Ingresá para cargar tus pronósticos y ver el ranking.</p>
+          <button
+            onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
+            style={{ background: '#2563eb', color: 'white', border: 'none', padding: '14px 24px', borderRadius: 10, fontSize: 16, fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            Ingresar con Google
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── PANTALLA: COMPLETAR PERFIL ────────────────────────────────────────────────
+  if (necesitaCompletarPerfil) {
+    return (
+      <div style={{ padding: 20, maxWidth: 900, margin: 'auto', color: 'white' }}>
+        <h1>Prode Las Últimas Dos ⚽</h1>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
+          <h2 style={{ marginBottom: 10 }}>Completá tus datos</h2>
+          <p style={{ marginBottom: 20, color: '#cbd5e1' }}>Antes de continuar, ingresá un usuario único y tu celular.</p>
+          <input type="text" placeholder="Usuario" value={nombreUsuario} onChange={(e) => setNombreUsuario(e.target.value)} style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: 8, border: '1px solid #475569', background: '#111827', color: 'white' }} />
+          <input type="text" placeholder="Celular" value={telefono} onChange={(e) => setTelefono(e.target.value)} style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: 8, border: '1px solid #475569', background: '#111827', color: 'white' }} />
+          {errorPerfil && <p style={{ color: '#f87171', marginBottom: 10 }}>{errorPerfil}</p>}
+          <button onClick={guardarPerfil} disabled={guardandoPerfil} style={{ background: '#2563eb', color: 'white', border: 'none', padding: '14px 24px', borderRadius: 10, fontSize: 16, fontWeight: 'bold', cursor: 'pointer', width: '100%' }}>
+            {guardandoPerfil ? 'Guardando...' : 'Guardar y continuar'}
+          </button>
+          <button onClick={() => supabase.auth.signOut()} style={{ marginTop: 12, background: 'transparent', color: '#cbd5e1', border: '1px solid #475569', padding: '10px 16px', borderRadius: 10, cursor: 'pointer', width: '100%' }}>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── PANTALLA: PENDIENTE DE APROBACIÓN ─────────────────────────────────────────
+  if (!aprobado && !esAdmin) {
+    return (
+      <div style={{ padding: 20, maxWidth: 900, margin: 'auto', color: 'white' }}>
+        <h1>Prode Las Últimas Dos ⚽</h1>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', maxWidth: 400, margin: '0 auto' }}>
+          <div style={{ fontSize: 64, marginBottom: 20 }}>⏳</div>
+          <h2 style={{ marginBottom: 10 }}>Tu cuenta está pendiente de aprobación</h2>
+          <p style={{ color: '#cbd5e1', marginBottom: 8 }}>
+            Hola <strong>{nombreUsuario}</strong>, tu registro fue recibido correctamente.
+          </p>
+          <p style={{ color: '#94a3b8', marginBottom: 24, fontSize: 14 }}>
+            Una vez que confirmes tu pago, el organizador habilitará tu acceso y podrás cargar tus pronósticos.
+          </p>
+          <div style={{ background: '#1e3a8a', border: '1px solid #3b82f6', borderRadius: 10, padding: 16, marginBottom: 24, width: '100%' }}>
+            <p style={{ margin: 0, color: '#93c5fd', fontSize: 14 }}>
+              📱 Contactá al organizador para coordinar el pago y que habilite tu cuenta.
+            </p>
+          </div>
+          <button onClick={() => supabase.auth.signOut()} style={{ background: 'transparent', color: '#cbd5e1', border: '1px solid #475569', padding: '10px 16px', borderRadius: 10, cursor: 'pointer', width: '100%' }}>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── PANTALLA PRINCIPAL ────────────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        padding: 20,
-        maxWidth: 900,
-        margin: 'auto',
-        color: 'white',
-      }}
-    >
+    <div style={{ padding: 20, maxWidth: 900, margin: 'auto', color: 'white' }}>
       <h1>Prode Las Últimas Dos ⚽</h1>
 
       {mostrarReglamento && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              background: '#111827',
-              color: 'white',
-              maxWidth: 620,
-              width: '100%',
-              borderRadius: 14,
-              padding: 24,
-              border: '1px solid #374151',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
-              maxHeight: '85vh',
-              overflowY: 'auto',
-            }}
-          >
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
+          <div style={{ background: '#111827', color: 'white', maxWidth: 620, width: '100%', borderRadius: 14, padding: 24, border: '1px solid #374151', boxShadow: '0 10px 30px rgba(0,0,0,0.4)', maxHeight: '85vh', overflowY: 'auto' }}>
             <h2 style={{ marginTop: 0, marginBottom: 16 }}>📜 Reglamento</h2>
-
-            <pre
-              style={{
-                whiteSpace: 'pre-wrap',
-                lineHeight: 1.6,
-                color: '#e5e7eb',
-                fontSize: 15,
-                fontFamily: 'inherit',
-                margin: 0,
-              }}
-            >
-              {REGLAMENTO_TEXTO}
-            </pre>
-
-            <button
-              onClick={cerrarReglamento}
-              style={{
-                marginTop: 20,
-                width: '100%',
-                background: '#2563eb',
-                color: 'white',
-                border: 'none',
-                padding: '14px 20px',
-                borderRadius: 10,
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                fontSize: 16,
-              }}
-            >
+            <pre style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#e5e7eb', fontSize: 15, fontFamily: 'inherit', margin: 0 }}>{REGLAMENTO_TEXTO}</pre>
+            <button onClick={cerrarReglamento} style={{ marginTop: 20, width: '100%', background: '#2563eb', color: 'white', border: 'none', padding: '14px 20px', borderRadius: 10, fontWeight: 'bold', cursor: 'pointer', fontSize: 16 }}>
               Entendido
             </button>
           </div>
         </div>
       )}
 
-      {!email ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '60vh',
-            textAlign: 'center',
-          }}
-        >
-          <h2 style={{ marginBottom: 10 }}>Bienvenido al Prode Las Últimas Dos ⚽</h2>
-          <p style={{ marginBottom: 20, color: '#cbd5e1' }}>
-            Ingresá para cargar tus pronósticos y ver el ranking.
-          </p>
+      <p>👤 {nombreUsuario || email}</p>
 
-          <button
-            onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
-            style={{
-              background: '#2563eb',
-              color: 'white',
-              border: 'none',
-              padding: '14px 24px',
-              borderRadius: 10,
-              fontSize: 16,
-              fontWeight: 'bold',
-              cursor: 'pointer',
-            }}
-          >
-            Ingresar con Google
-          </button>
-        </div>
-      ) : necesitaCompletarPerfil ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '60vh',
-            textAlign: 'center',
-            maxWidth: 400,
-            margin: '0 auto',
-          }}
-        >
-          <h2 style={{ marginBottom: 10 }}>Completá tus datos</h2>
-          <p style={{ marginBottom: 20, color: '#cbd5e1' }}>
-            Antes de continuar, ingresá un usuario único y tu celular.
-          </p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, marginBottom: 20 }}>
+        <button onClick={() => setMostrarReglamento(true)} style={{ background: '#374151', color: 'white', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' }}>
+          📜 Ver reglamento
+        </button>
+        <button onClick={() => supabase.auth.signOut()} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' }}>
+          🔒 Cerrar sesión
+        </button>
+      </div>
 
-          <input
-            type="text"
-            placeholder="Usuario"
-            value={nombreUsuario}
-            onChange={(e) => setNombreUsuario(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px',
-              marginBottom: '10px',
-              borderRadius: 8,
-              border: '1px solid #475569',
-              background: '#111827',
-              color: 'white',
-            }}
-          />
-
-          <input
-            type="text"
-            placeholder="Celular"
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px',
-              marginBottom: '10px',
-              borderRadius: 8,
-              border: '1px solid #475569',
-              background: '#111827',
-              color: 'white',
-            }}
-          />
-
-          {errorPerfil && (
-            <p style={{ color: '#f87171', marginBottom: 10 }}>{errorPerfil}</p>
-          )}
-
-          <button
-            onClick={guardarPerfil}
-            disabled={guardandoPerfil}
-            style={{
-              background: '#2563eb',
-              color: 'white',
-              border: 'none',
-              padding: '14px 24px',
-              borderRadius: 10,
-              fontSize: 16,
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              width: '100%',
-            }}
-          >
-            {guardandoPerfil ? 'Guardando...' : 'Guardar y continuar'}
-          </button>
-
-          <button
-            onClick={() => supabase.auth.signOut()}
-            style={{
-              marginTop: 12,
-              background: 'transparent',
-              color: '#cbd5e1',
-              border: '1px solid #475569',
-              padding: '10px 16px',
-              borderRadius: 10,
-              cursor: 'pointer',
-              width: '100%',
-            }}
-          >
-            Cerrar sesión
-          </button>
-        </div>
-      ) : (
-        <>
-          <p>👤 {nombreUsuario || email}</p>
-
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, marginBottom: 20 }}>
+      {/* PANEL ADMIN */}
+      {esAdmin && (
+        <div style={{ marginBottom: 30 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
             <button
-              onClick={() => setMostrarReglamento(true)}
-              style={{
-                background: '#374151',
-                color: 'white',
-                border: 'none',
-                padding: '10px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                fontWeight: 'bold',
-              }}
+              onClick={() => setVistaAdmin('partidos')}
+              style={{ background: vistaAdmin === 'partidos' ? '#2563eb' : '#374151', color: 'white', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' }}
             >
-              📜 Ver reglamento
+              ⚽ Partidos
             </button>
-
             <button
-              onClick={() => supabase.auth.signOut()}
-              style={{
-                background: '#ef4444',
-                color: 'white',
-                border: 'none',
-                padding: '10px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                fontWeight: 'bold',
-              }}
+              onClick={() => setVistaAdmin('usuarios')}
+              style={{ background: vistaAdmin === 'usuarios' ? '#2563eb' : '#374151', color: 'white', border: 'none', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' }}
             >
-              🔒 Cerrar sesión
+              👥 Usuarios ({usuariosAdmin.filter(u => !u.aprobado).length} pendientes)
             </button>
           </div>
 
+          {vistaAdmin === 'usuarios' && (
+            <div style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+              <h3 style={{ marginTop: 0 }}>👥 Gestión de usuarios</h3>
+              {usuariosAdmin.map((u) => (
+                <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', marginBottom: 8, borderRadius: 8, background: '#111827', border: `1px solid ${u.aprobado ? '#16a34a' : '#92400e'}`, flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 'bold' }}>{u.username || u.nombre || u.email}</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8' }}>{u.email}</div>
+                    {u.telefono && <div style={{ fontSize: 13, color: '#94a3b8' }}>📱 {u.telefono}</div>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 13, color: u.aprobado ? '#4ade80' : '#fbbf24', fontWeight: 'bold' }}>
+                      {u.aprobado ? '✅ Aprobado' : '⏳ Pendiente'}
+                    </span>
+                    <button
+                      onClick={() => toggleAprobacion(u.id, u.aprobado)}
+                      disabled={guardandoAprobacion === u.id}
+                      style={{ background: u.aprobado ? '#7f1d1d' : '#14532d', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold', fontSize: 13 }}
+                    >
+                      {guardandoAprobacion === u.id ? '...' : u.aprobado ? '🚫 Bloquear' : '✅ Aprobar'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(vistaAdmin === 'partidos' || !esAdmin) && (
+        <>
           {primerPartido && (
-            <div
-              style={{
-                background: pronosticosBloqueados ? '#7f1d1d' : '#1e3a8a',
-                color: 'white',
-                padding: 12,
-                borderRadius: 8,
-                marginBottom: 20,
-                border: pronosticosBloqueados
-                  ? '1px solid #ef4444'
-                  : '1px solid #60a5fa',
-              }}
-            >
+            <div style={{ background: pronosticosBloqueados ? '#7f1d1d' : '#1e3a8a', color: 'white', padding: 12, borderRadius: 8, marginBottom: 20, border: pronosticosBloqueados ? '1px solid #ef4444' : '1px solid #60a5fa' }}>
               <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
-                {pronosticosBloqueados
-                  ? '🔒 Pronósticos cerrados'
-                  : '⏳ Pronósticos abiertos'}
+                {pronosticosBloqueados ? '🔒 Pronósticos cerrados' : '⏳ Pronósticos abiertos'}
               </div>
               <div>
                 {pronosticosBloqueados
@@ -793,371 +578,103 @@ export default function Home() {
 
           <h2>Partidos</h2>
 
-          {cargando ? (
-            <p>Cargando...</p>
-          ) : (
-            partidos.map((p) => {
-              const sel = pronosticos[p.id] ?? {
-                goles_local: '',
-                goles_visitante: '',
-              }
+          {cargando ? <p>Cargando...</p> : partidos.map((p) => {
+            const sel = pronosticos[p.id] ?? { goles_local: '', goles_visitante: '' }
+            const estadoActual = estadoGuardado[p.id]
+            const partidoTieneResultado = p.resultado_local !== null && p.resultado_visitante !== null
+            const tienePronosticoGuardado = sel.goles_local !== '' && sel.goles_visitante !== ''
 
-              const estadoActual = estadoGuardado[p.id]
+            return (
+              <div key={p.id} style={{ border: tienePronosticoGuardado ? '2px solid #22c55e' : '1px solid #374151', padding: 12, marginBottom: 12, borderRadius: 8, background: '#1f2937', color: 'white' }}>
+                <div style={{ fontSize: 14, marginBottom: 6 }}>Grupo {p.grupo} - {formatearFecha(p.fecha)}</div>
+                <div style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>{p.equipo_local} vs {p.equipo_visitante}</div>
 
-              const partidoTieneResultado =
-                p.resultado_local !== null && p.resultado_visitante !== null
-
-              const tienePronosticoGuardado =
-                sel.goles_local !== '' && sel.goles_visitante !== ''
-
-              return (
-                <div
-                  key={p.id}
-                  style={{
-                    border: tienePronosticoGuardado
-                      ? '2px solid #22c55e'
-                      : '1px solid #374151',
-                    padding: 12,
-                    marginBottom: 12,
-                    borderRadius: 8,
-                    background: '#1f2937',
-                    color: 'white',
-                  }}
-                >
-                  <div style={{ fontSize: 14, marginBottom: 6 }}>
-                    Grupo {p.grupo} - {formatearFecha(p.fecha)}
-                  </div>
-
-                  <div style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
-                    {p.equipo_local} vs {p.equipo_visitante}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <input
-                      type="number"
-                      min="0"
-                      value={sel.goles_local}
-                      onChange={(e) =>
-                        actualizarPronostico(p.id, 'goles_local', e.target.value)
-                      }
-                      disabled={pronosticosBloqueados}
-                      placeholder="0"
-                      style={{
-                        width: 70,
-                        padding: '10px',
-                        borderRadius: 8,
-                        border: '1px solid #475569',
-                        background: pronosticosBloqueados ? '#374151' : '#111827',
-                        color: 'white',
-                        textAlign: 'center',
-                      }}
-                    />
-
-                    <span style={{ fontWeight: 'bold', fontSize: 18 }}>-</span>
-
-                    <input
-                      type="number"
-                      min="0"
-                      value={sel.goles_visitante}
-                      onChange={(e) =>
-                        actualizarPronostico(p.id, 'goles_visitante', e.target.value)
-                      }
-                      disabled={pronosticosBloqueados}
-                      placeholder="0"
-                      style={{
-                        width: 70,
-                        padding: '10px',
-                        borderRadius: 8,
-                        border: '1px solid #475569',
-                        background: pronosticosBloqueados ? '#374151' : '#111827',
-                        color: 'white',
-                        textAlign: 'center',
-                      }}
-                    />
-                  </div>
-
-                  <div style={{ marginTop: 10 }}>
-                    <b>Tu pronóstico:</b>{' '}
-                    {tienePronosticoGuardado
-                      ? `${p.equipo_local} ${sel.goles_local} - ${sel.goles_visitante} ${p.equipo_visitante}`
-                      : 'Sin elegir'}
-                  </div>
-
-                  {estadoActual === 'guardando' && (
-                    <div style={{ marginTop: 6, color: '#facc15', fontWeight: 'bold' }}>
-                      ⏳ Guardando...
-                    </div>
-                  )}
-
-                  {estadoActual === 'guardado' && (
-                    <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>
-                      ✅ Guardado automáticamente
-                    </div>
-                  )}
-
-                  {estadoActual === 'error' && (
-                    <div style={{ marginTop: 6, color: '#ef4444', fontWeight: 'bold' }}>
-                      ❌ Error al guardar
-                    </div>
-                  )}
-
-                  {estadoActual !== 'guardando' &&
-                    estadoActual !== 'guardado' &&
-                    estadoActual !== 'error' &&
-                    tienePronosticoGuardado && (
-                      <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>
-                        ✅ Pronóstico cargado
-                      </div>
-                    )}
-
-                  <div style={{ marginTop: 6 }}>
-                    <b>Resultado real:</b>{' '}
-                    {partidoTieneResultado
-                      ? `${p.equipo_local} ${p.resultado_local} - ${p.resultado_visitante} ${p.equipo_visitante}`
-                      : 'Sin cargar'}
-                  </div>
-
-                  {pronosticosBloqueados && <div style={{ marginTop: 8 }}>🔒 Cerrado</div>}
-
-                  {esAdmin && (
-                    <div style={{ marginTop: 14 }}>
-                      <b>Admin: cargar resultado real</b>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                        <input
-                          type="number"
-                          min="0"
-                          value={p.resultado_local ?? ''}
-                          onChange={(e) =>
-                            actualizarResultadoAdmin(p.id, 'resultado_local', e.target.value)
-                          }
-                          placeholder="0"
-                          style={{
-                            width: 70,
-                            padding: '10px',
-                            borderRadius: 8,
-                            border: '1px solid #475569',
-                            background: '#111827',
-                            color: 'white',
-                            textAlign: 'center',
-                          }}
-                        />
-
-                        <span style={{ fontWeight: 'bold', fontSize: 18 }}>-</span>
-
-                        <input
-                          type="number"
-                          min="0"
-                          value={p.resultado_visitante ?? ''}
-                          onChange={(e) =>
-                            actualizarResultadoAdmin(p.id, 'resultado_visitante', e.target.value)
-                          }
-                          placeholder="0"
-                          style={{
-                            width: 70,
-                            padding: '10px',
-                            borderRadius: 8,
-                            border: '1px solid #475569',
-                            background: '#111827',
-                            color: 'white',
-                            textAlign: 'center',
-                          }}
-                        />
-
-                        <button
-                          disabled={guardandoResultadoId === p.id}
-                          onClick={() => guardarResultado(p.id)}
-                          style={{
-                            padding: '10px 14px',
-                            borderRadius: 8,
-                            border: 'none',
-                            background: '#16a34a',
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {guardandoResultadoId === p.id ? 'Guardando...' : 'Guardar resultado'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <input type="number" min="0" value={sel.goles_local} onChange={(e) => actualizarPronostico(p.id, 'goles_local', e.target.value)} disabled={pronosticosBloqueados} placeholder="0" style={{ width: 70, padding: '10px', borderRadius: 8, border: '1px solid #475569', background: pronosticosBloqueados ? '#374151' : '#111827', color: 'white', textAlign: 'center' }} />
+                  <span style={{ fontWeight: 'bold', fontSize: 18 }}>-</span>
+                  <input type="number" min="0" value={sel.goles_visitante} onChange={(e) => actualizarPronostico(p.id, 'goles_visitante', e.target.value)} disabled={pronosticosBloqueados} placeholder="0" style={{ width: 70, padding: '10px', borderRadius: 8, border: '1px solid #475569', background: pronosticosBloqueados ? '#374151' : '#111827', color: 'white', textAlign: 'center' }} />
                 </div>
-              )
-            })
-          )}
+
+                <div style={{ marginTop: 10 }}><b>Tu pronóstico:</b> {tienePronosticoGuardado ? `${p.equipo_local} ${sel.goles_local} - ${sel.goles_visitante} ${p.equipo_visitante}` : 'Sin elegir'}</div>
+
+                {estadoActual === 'guardando' && <div style={{ marginTop: 6, color: '#facc15', fontWeight: 'bold' }}>⏳ Guardando...</div>}
+                {estadoActual === 'guardado' && <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>✅ Guardado automáticamente</div>}
+                {estadoActual === 'error' && <div style={{ marginTop: 6, color: '#ef4444', fontWeight: 'bold' }}>❌ Error al guardar</div>}
+                {estadoActual !== 'guardando' && estadoActual !== 'guardado' && estadoActual !== 'error' && tienePronosticoGuardado && (
+                  <div style={{ marginTop: 6, color: '#22c55e', fontWeight: 'bold' }}>✅ Pronóstico cargado</div>
+                )}
+
+                <div style={{ marginTop: 6 }}><b>Resultado real:</b> {partidoTieneResultado ? `${p.equipo_local} ${p.resultado_local} - ${p.resultado_visitante} ${p.equipo_visitante}` : 'Sin cargar'}</div>
+                {pronosticosBloqueados && <div style={{ marginTop: 8 }}>🔒 Cerrado</div>}
+
+                {esAdmin && (
+                  <div style={{ marginTop: 14 }}>
+                    <b>Admin: cargar resultado real</b>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                      <input type="number" min="0" value={p.resultado_local ?? ''} onChange={(e) => actualizarResultadoAdmin(p.id, 'resultado_local', e.target.value)} placeholder="0" style={{ width: 70, padding: '10px', borderRadius: 8, border: '1px solid #475569', background: '#111827', color: 'white', textAlign: 'center' }} />
+                      <span style={{ fontWeight: 'bold', fontSize: 18 }}>-</span>
+                      <input type="number" min="0" value={p.resultado_visitante ?? ''} onChange={(e) => actualizarResultadoAdmin(p.id, 'resultado_visitante', e.target.value)} placeholder="0" style={{ width: 70, padding: '10px', borderRadius: 8, border: '1px solid #475569', background: '#111827', color: 'white', textAlign: 'center' }} />
+                      <button disabled={guardandoResultadoId === p.id} onClick={() => guardarResultado(p.id)} style={{ padding: '10px 14px', borderRadius: 8, border: 'none', background: '#16a34a', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
+                        {guardandoResultadoId === p.id ? 'Guardando...' : 'Guardar resultado'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
 
           <h2 style={{ marginTop: 30 }}>🔍 Jugadas cargadas</h2>
-
-          <div
-            style={{
-              background: '#1f2937',
-              border: '1px solid #374151',
-              borderRadius: 10,
-              padding: 14,
-              marginBottom: 20,
-            }}
-          >
+          <div style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 10, padding: 14, marginBottom: 20 }}>
             {!pronosticosBloqueados ? (
-              <div
-                style={{
-                  background: '#78350f',
-                  color: '#fde68a',
-                  padding: 12,
-                  borderRadius: 8,
-                  fontWeight: 'bold',
-                }}
-              >
+              <div style={{ background: '#78350f', color: '#fde68a', padding: 12, borderRadius: 8, fontWeight: 'bold' }}>
                 Las jugadas todavía están ocultas. Se podrán ver cuando cierre la carga de pronósticos.
               </div>
             ) : (
               <>
-                <p style={{ color: '#cbd5e1', marginTop: 0 }}>
-                  Para garantizar transparencia, todas las jugadas quedan visibles una vez cerrado el período de carga.
-                </p>
-
+                <p style={{ color: '#cbd5e1', marginTop: 0 }}>Para garantizar transparencia, todas las jugadas quedan visibles una vez cerrado el período de carga.</p>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-                  <select
-                    value={partidoFiltro}
-                    onChange={(e) => setPartidoFiltro(e.target.value)}
-                    style={{
-                      flex: 1,
-                      minWidth: 220,
-                      padding: 12,
-                      borderRadius: 8,
-                      border: '1px solid #475569',
-                      background: '#111827',
-                      color: 'white',
-                    }}
-                  >
+                  <select value={partidoFiltro} onChange={(e) => setPartidoFiltro(e.target.value)} style={{ flex: 1, minWidth: 220, padding: 12, borderRadius: 8, border: '1px solid #475569', background: '#111827', color: 'white' }}>
                     <option value="todos">Todos los partidos</option>
-
-                    {partidosUnicosJugadas.map((p) => (
-                      <option key={p.id} value={String(p.id)}>
-                        {p.nombre}
-                      </option>
-                    ))}
+                    {partidosUnicosJugadas.map((p) => <option key={p.id} value={String(p.id)}>{p.nombre}</option>)}
                   </select>
-
-                  <input
-                    type="text"
-                    placeholder="Buscar usuario..."
-                    value={busquedaUsuario}
-                    onChange={(e) => setBusquedaUsuario(e.target.value)}
-                    style={{
-                      flex: 1,
-                      minWidth: 220,
-                      padding: 12,
-                      borderRadius: 8,
-                      border: '1px solid #475569',
-                      background: '#111827',
-                      color: 'white',
-                    }}
-                  />
+                  <input type="text" placeholder="Buscar usuario..." value={busquedaUsuario} onChange={(e) => setBusquedaUsuario(e.target.value)} style={{ flex: 1, minWidth: 220, padding: 12, borderRadius: 8, border: '1px solid #475569', background: '#111827', color: 'white' }} />
                 </div>
-
-                {jugadasFiltradas.length === 0 ? (
-                  <p style={{ color: '#cbd5e1' }}>No hay jugadas para mostrar.</p>
-                ) : (
-                  jugadasFiltradas.map((j) => (
-                    <div
-                      key={j.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        padding: 12,
-                        marginBottom: 8,
-                        borderRadius: 8,
-                        background: '#111827',
-                        border: '1px solid #374151',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 'bold' }}>
-                          {j.username || j.nombre || j.email}
-                        </div>
-
-                        <div style={{ color: '#cbd5e1', fontSize: 14 }}>
-                          {j.equipo_local} vs {j.equipo_visitante}
-                        </div>
-
-                        <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                          {formatearFecha(j.fecha)}
-                        </div>
-                      </div>
-
-                      <div style={{ fontWeight: 'bold', fontSize: 20, whiteSpace: 'nowrap' }}>
-                        {j.goles_local} - {j.goles_visitante}
-                      </div>
+                {jugadasFiltradas.length === 0 ? <p style={{ color: '#cbd5e1' }}>No hay jugadas para mostrar.</p> : jugadasFiltradas.map((j) => (
+                  <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: 12, marginBottom: 8, borderRadius: 8, background: '#111827', border: '1px solid #374151' }}>
+                    <div>
+                      <div style={{ fontWeight: 'bold' }}>{j.username || j.nombre || j.email}</div>
+                      <div style={{ color: '#cbd5e1', fontSize: 14 }}>{j.equipo_local} vs {j.equipo_visitante}</div>
+                      <div style={{ color: '#94a3b8', fontSize: 12 }}>{formatearFecha(j.fecha)}</div>
                     </div>
-                  ))
-                )}
+                    <div style={{ fontWeight: 'bold', fontSize: 20, whiteSpace: 'nowrap' }}>{j.goles_local} - {j.goles_visitante}</div>
+                  </div>
+                ))}
               </>
             )}
           </div>
 
           {(() => {
             const miPos = ranking.findIndex((r) => r.email === email)
-
             if (miPos === -1) return null
-
             const yo = ranking[miPos]
-
             return (
-              <div
-                style={{
-                  background: '#2563eb',
-                  padding: 12,
-                  borderRadius: 8,
-                  marginTop: 20,
-                  marginBottom: 10,
-                  fontWeight: 'bold',
-                }}
-              >
+              <div style={{ background: '#2563eb', padding: 12, borderRadius: 8, marginTop: 20, marginBottom: 10, fontWeight: 'bold' }}>
                 👤 Estás {miPos + 1}° con {yo.puntos} pts
               </div>
             )
           })()}
 
           <h2 style={{ marginTop: 30 }}>🏆 Ranking</h2>
-
           <div style={{ marginTop: 10 }}>
             {ranking.map((r, i) => {
               const soyYo = r.email === email
-
               return (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: 12,
-                    marginBottom: 8,
-                    borderRadius: 8,
-                    background: soyYo
-                      ? '#2563eb'
-                      : i === 0
-                        ? '#fbbf24'
-                        : i === 1
-                          ? '#9ca3af'
-                          : i === 2
-                            ? '#b45309'
-                            : '#1f2937',
-                    color: soyYo || i < 3 ? 'black' : 'white',
-                    fontWeight: soyYo || i < 3 ? 'bold' : 'normal',
-                    border: soyYo ? '2px solid white' : 'none',
-                  }}
-                >
-                  <div>
-                    {i + 1}. {r.nombre} {soyYo ? '👈 Vos' : ''}
-                  </div>
-
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: 12, marginBottom: 8, borderRadius: 8, background: soyYo ? '#2563eb' : i === 0 ? '#fbbf24' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : '#1f2937', color: soyYo || i < 3 ? 'black' : 'white', fontWeight: soyYo || i < 3 ? 'bold' : 'normal', border: soyYo ? '2px solid white' : 'none' }}>
+                  <div>{i + 1}. {r.nombre} {soyYo ? '👈 Vos' : ''}</div>
                   <div style={{ textAlign: 'right' }}>
                     <div>🏅 {r.puntos} pts</div>
-                    <div style={{ fontSize: 12 }}>
-                      🎯 {r.aciertosResultado} | ⭐ {r.aciertosExactos} | 📊 {r.pronosticados}
-                    </div>
+                    <div style={{ fontSize: 12 }}>🎯 {r.aciertosResultado} | ⭐ {r.aciertosExactos} | 📊 {r.pronosticados}</div>
                   </div>
                 </div>
               )
