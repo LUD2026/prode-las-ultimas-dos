@@ -668,6 +668,19 @@ export default function Home() {
           <h2 style={{ marginTop: 30 }}>🏆 Ranking</h2>
           <div style={{ marginTop: 10 }}>
             {ranking.map((r, i) => {
+  const soyYo = r.email === email
+  const esUltimo = i === ranking.length - 1
+
+  return (
+    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: 12, marginBottom: 8, borderRadius: 8, background: soyYo ? '#2563eb' : esUltimo ? '#450a0a' : i === 0 ? '#fbbf24' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : '#1f2937', color: soyYo || i < 3 ? 'black' : 'white', fontWeight: soyYo || i < 3 ? 'bold' : 'normal', border: soyYo ? '2px solid white' : esUltimo ? '2px solid #ef4444' : 'none' }}>
+      <div>{i + 1}. {r.nombre} {soyYo ? '👈 Vos' : ''} {esUltimo ? '😢 Premio Consuelo' : ''}</div>
+      <div style={{ textAlign: 'right' }}>
+        <div>🏅 {r.puntos} pts</div>
+        <div style={{ fontSize: 12 }}>🎯 {r.aciertosResultado} | ⭐ {r.aciertosExactos} | 📊 {r.pronosticados}</div>
+      </div>
+    </div>
+  )
+})}
               const soyYo = r.email === email
               return (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: 12, marginBottom: 8, borderRadius: 8, background: soyYo ? '#2563eb' : i === 0 ? '#fbbf24' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : '#1f2937', color: soyYo || i < 3 ? 'black' : 'white', fontWeight: soyYo || i < 3 ? 'bold' : 'normal', border: soyYo ? '2px solid white' : 'none' }}>
